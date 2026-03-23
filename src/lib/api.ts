@@ -162,6 +162,18 @@ export const adminApi = {
   deletePlan: (id: string) => api.delete(`/admin/plans/${id}`),
   overrideSubscription: (userId: string, data: { planId: string, durationDays: number }) =>
     api.post(`/admin/users/${userId}/subscription/override`, data),
+
+  // Daily Insights
+  getDailyInsights: (page = 1, limit = 20) =>
+    api.get('/daily-insights/admin', { params: { page, limit } }),
+  createDailyInsight: (data: { content: string; author?: string; category?: string; scheduledDate?: string }) =>
+    api.post('/daily-insights', data),
+  updateDailyInsight: (id: string, data: Record<string, any>) =>
+    api.put(`/daily-insights/${id}`, data),
+  deleteDailyInsight: (id: string) =>
+    api.delete(`/daily-insights/${id}`),
+  seedDailyInsights: () =>
+    api.post('/daily-insights/seed'),
 }
 
 // ── Analytics ────────────────────────────────────────────────
