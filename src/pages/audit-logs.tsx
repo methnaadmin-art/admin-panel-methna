@@ -86,11 +86,45 @@ export default function AuditLogsPage() {
 
   useEffect(() => {
     setLoading(true)
-    api.get('/admin/audit-logs', { params: { page, limit } })
+    api.get('/admin/audit-logs')
       .then((res) => {
         const data = res.data
-        const list = data?.logs || (Array.isArray(data) ? data : [])
-        setLogs(list)
+        // Backend returns { login: [...], admin: [...], suspicious: [...] }
+        let allLogs: AuditLog[] = []
+
+        const mapRedisLog = (entry: any, category: string): AuditLog => ({
+          id: entry.id || entry.jti || `${category}-${Date.now()}-${Math.random()}`,
+          adminId: entry.adminId || entry.userId || '',
+          adminName: entry.adminName || entry.email || entry.userId?.slice(0, 8) || category,
+          action: entry.action || entry.type || category,
+          target: entry.target || entry.targetUserId || '',
+          targetId: entry.targetId || entry.targetUserId || '',
+          details: entry.details || entry.newStatus || entry.reason || JSON.stringify(entry).slice(0, 120),
+          ip: entry.ip || entry.ipAddress || '',
+          timestamp: entry.timestamp || entry.createdAt || new Date().toISOString(),
+        })
+
+        if (data?.login && Array.isArray(data.login)) {
+          allLogs.push(...data.login.map((e: any) => mapRedisLog(e, 'login')))
+        }
+        if (data?.admin && Array.isArray(data.admin)) {
+          allLogs.push(...data.admin.map((e: any) => mapRedisLog(e, 'admin')))
+        }
+        if (data?.suspicious && Array.isArray(data.suspicious)) {
+          allLogs.push(...data.suspicious.map((e: any) => mapRedisLog(e, 'suspicious')))
+        }
+
+        // If backend returns flat array or logs key
+        if (Array.isArray(data)) {
+          allLogs = data.map((e: any) => mapRedisLog(e, 'admin'))
+        }
+        if (data?.logs && Array.isArray(data.logs)) {
+          allLogs = data.logs.map((e: any) => mapRedisLog(e, 'admin'))
+        }
+
+        // Sort by timestamp descending
+        allLogs.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+        setLogs(allLogs)
       })
       .catch((err) => {
         console.error('Failed to fetch audit logs:', err)
