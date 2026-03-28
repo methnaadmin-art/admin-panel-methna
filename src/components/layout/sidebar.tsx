@@ -121,7 +121,12 @@ export function Sidebar() {
   const { user, logout } = useAuth()
   const location = useLocation()
   const [collapsed, setCollapsed] = useState(false)
-  const [openSections, setOpenSections] = useState<Record<string, boolean>>({})
+  const [openSections, setOpenSections] = useState<Record<string, boolean>>(() => {
+    // All sections start expanded so all nav buttons are visible
+    const initial: Record<string, boolean> = {}
+    navSections.forEach((section) => { initial[section.titleKey] = true })
+    return initial
+  })
   const [badges, setBadges] = useState<Record<string, number>>({})
   const isRtl = i18n.language === 'ar'
 
