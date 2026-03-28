@@ -33,6 +33,7 @@ import {
   Crown,
   Send,
   FileCheck,
+  FileText,
   ScrollText,
   BookOpen,
   Layers,
@@ -78,6 +79,7 @@ const navSections: NavSection[] = [
   },
   {
     titleKey: 'Content',
+    icon: FileText,
     items: [
       { to: '/content', icon: FileText, labelKey: 'Content CMS' }
     ]
