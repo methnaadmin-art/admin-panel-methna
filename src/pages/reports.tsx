@@ -22,6 +22,7 @@ import {
 } from '@/components/ui/dialog'
 import type { Report, ReportStatus } from '@/types'
 import { formatDateTime } from '@/lib/utils'
+import { useToast } from '@/components/ui/toast'
 import { ChevronLeft, ChevronRight, Loader2, CheckCircle, XCircle, Eye } from 'lucide-react'
 
 const statusBadge = (status: string) => {
@@ -52,6 +53,8 @@ export default function ReportsPage() {
   const [page, setPage] = useState(1)
   const [statusFilter, setStatusFilter] = useState('all')
   const [loading, setLoading] = useState(true)
+  const { toast } = useToast()
+  const [resolveLoading, setResolveLoading] = useState(false)
 
   const [resolveDialog, setResolveDialog] = useState<{ open: boolean; report: Report | null }>({
     open: false, report: null,
@@ -79,13 +82,26 @@ export default function ReportsPage() {
 
   const handleResolve = async () => {
     if (!resolveDialog.report) return
+    setResolveLoading(true)
     try {
       await adminApi.resolveReport(resolveDialog.report.id, resolveStatus, moderatorNote || undefined)
+      toast({
+        title: resolveStatus === 'RESOLVED' ? t('reports.resolved') : t('reports.dismissed'),
+        description: `${resolveDialog.report.reported?.firstName || 'User'} report - ${resolveStatus.toLowerCase()}`,
+        variant: resolveStatus === 'RESOLVED' ? 'success' : 'warning',
+      })
       setResolveDialog({ open: false, report: null })
       setModeratorNote('')
       fetchReports()
     } catch (err) {
       console.error(err)
+      toast({
+        title: t('common.error'),
+        description: 'Failed to resolve report',
+        variant: 'error',
+      })
+    } finally {
+      setResolveLoading(false)
     }
   }
 
@@ -242,7 +258,10 @@ export default function ReportsPage() {
           />
           <DialogFooter>
             <Button variant="outline" onClick={() => setResolveDialog({ open: false, report: null })}>{t('common.cancel')}</Button>
-            <Button onClick={handleResolve}>{t('common.submit')}</Button>
+            <Button onClick={handleResolve} disabled={resolveLoading}>
+              {resolveLoading && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
+              {t('common.submit')}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

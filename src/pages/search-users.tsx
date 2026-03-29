@@ -14,7 +14,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
-import { Loader2, Search, Eye, MapPin } from 'lucide-react'
+import { Loader2, Search, Eye, MapPin, ChevronLeft, ChevronRight } from 'lucide-react'
 
 export default function SearchUsersPage() {
   const { t } = useTranslation()
@@ -32,14 +32,18 @@ export default function SearchUsersPage() {
   const [roleFilter, setRoleFilter] = useState<string>('all')
   const [page, setPage] = useState(1)
 
-  // Auto-search when navigated from header search bar with ?q=
+  // Search when URL query, filters, or page changes
   useEffect(() => {
-    const q = searchParams.get('q')
-    if (q) {
-      setSearchQuery(q)
-      performSearch(q, statusFilter, roleFilter)
-    }
-  }, [searchParams.get('q')])
+    const q = searchParams.get('q') || ''
+    setSearchQuery(q)
+    performSearch(q, statusFilter, roleFilter)
+  }, [searchParams.get('q'), page, statusFilter, roleFilter])
+
+  // Reset to page 1 when query or filters change manually
+  const handleSearch = () => {
+    setPage(1)
+    // The useEffect will trigger performSearch
+  }
 
   const performSearch = async (query?: string, status?: string, role?: string) => {
     setLoading(true)
@@ -57,15 +61,13 @@ export default function SearchUsersPage() {
     } catch (err) {
       console.error(err)
       setResults([])
+      setTotal(0)
     } finally {
       setLoading(false)
     }
   }
 
-  const handleSearch = () => {
-    setPage(1)
-    performSearch(searchQuery, statusFilter, roleFilter)
-  }
+  const totalPages = Math.ceil(total / 20)
 
   return (
     <div className="space-y-6">
@@ -170,6 +172,20 @@ export default function SearchUsersPage() {
                   </Button>
                 </div>
               ))}
+            </div>
+          )}
+
+          {totalPages > 1 && (
+            <div className="mt-4 flex items-center justify-between border-t pt-4">
+              <p className="text-sm text-muted-foreground">{t('common.page')} {page} {t('common.of')} {totalPages}</p>
+              <div className="flex gap-2">
+                <Button size="sm" variant="outline" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
+                  <ChevronLeft className="h-4 w-4" />
+                </Button>
+                <Button size="sm" variant="outline" disabled={page >= totalPages} onClick={() => setPage((p) => p + 1)}>
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
+              </div>
             </div>
           )}
         </CardContent>
