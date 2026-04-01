@@ -1,6 +1,19 @@
 import axios from 'axios'
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://jordan-backend-production.up.railway.app/api/v1'
+let API_BASE_URL = import.meta.env.VITE_API_URL || 'https://web-production-afbe4.up.railway.app/api/v1'
+
+// Force the correct URL in production to bypass any bad Railway Env variables
+if (import.meta.env.PROD) {
+  API_BASE_URL = 'https://web-production-afbe4.up.railway.app/api/v1';
+} else if (API_BASE_URL) {
+  API_BASE_URL = API_BASE_URL.replace(/['"]/g, '').trim();
+  if (!API_BASE_URL.startsWith('http')) {
+    API_BASE_URL = `https://${API_BASE_URL}`;
+  }
+  if (!API_BASE_URL.includes('/api/v1')) {
+    API_BASE_URL = `${API_BASE_URL.replace(/\/$/, '')}/api/v1`;
+  }
+}
 
 const api = axios.create({
   baseURL: API_BASE_URL,

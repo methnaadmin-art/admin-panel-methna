@@ -38,9 +38,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const login = useCallback(async (email: string, password: string) => {
-    const { data } = await authApi.login(email, password)
-
+    const response = await authApi.login(email, password)
+    
+    // Safely unwrap data in case the Axios interceptor didn't strip the envelope
+    const data = response.data?.data || response.data
     const userData = data.user || data
+    
     const accessToken = data.accessToken || data.access_token
     const refreshToken = data.refreshToken || data.refresh_token
 
