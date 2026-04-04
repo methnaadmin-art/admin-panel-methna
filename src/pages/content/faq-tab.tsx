@@ -53,7 +53,15 @@ export function FaqTab() {
     setLoading(true)
     try {
       const res = await contentApi.getAllFaqs()
-      setFaqs(res.data || [])
+      const payload = res.data?.data || res.data
+      const list = Array.isArray(payload)
+        ? payload
+        : payload?.faqs || payload?.items || payload?.results || []
+      const normalized = (Array.isArray(list) ? list : []).map((faq: any) => ({
+        ...faq,
+        id: faq.id || faq._id,
+      }))
+      setFaqs(normalized)
     } catch (err) {
       toast({ title: 'Error', description: 'Failed to fetch FAQs', variant: 'error' })
     } finally {

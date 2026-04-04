@@ -107,8 +107,7 @@ export default function VerificationPage() {
   const [pendingDocs, setPendingDocs] = useState<PendingDocUser[]>([])
   const [pendingDocsLoading, setPendingDocsLoading] = useState(false)
   const [docVerifyLoading, setDocVerifyLoading] = useState('')
-  const [autoApproveLoading, setAutoApproveLoading] = useState(false)
-  const [rejectDialog, setRejectDialog] = useState<{ open: boolean; userId: string; reason: string }>({ open: false, userId: '', reason: '' })
+  const [reverifyDialog, setReverifyDialog] = useState<{ open: boolean; userId: string; reason: string }>({ open: false, userId: '', reason: '' })
 
   const fetchPhotos = async () => {
     setLoading(true)
@@ -186,10 +185,10 @@ export default function VerificationPage() {
     try {
       await adminApi.verifyDocument(userId, approved, rejectionReason)
       toast({
-        title: approved ? t('verification.approved') : t('verification.rejected'),
+        title: approved ? t('verification.approved') : t('verification.requestReverify'),
         description: approved
           ? t('verification.docApprovedDesc')
-          : t('verification.docRejectedDesc'),
+          : t('verification.reuploadRequested'),
         variant: approved ? 'success' : 'warning',
       })
       fetchPendingDocs()
@@ -197,24 +196,7 @@ export default function VerificationPage() {
       toast({ title: t('common.error'), description: t('verification.moderationFailed'), variant: 'error' })
     } finally {
       setDocVerifyLoading('')
-      setRejectDialog({ open: false, userId: '', reason: '' })
-    }
-  }
-
-  const handleAutoApprove = async () => {
-    setAutoApproveLoading(true)
-    try {
-      const { data } = await adminApi.autoApproveDocuments()
-      toast({
-        title: t('verification.approved'),
-        description: `${data.approved || 0} ${t('verification.documentsAutoApproved')}`,
-        variant: 'success',
-      })
-      fetchPendingDocs()
-    } catch (err) {
-      toast({ title: t('common.error'), description: t('verification.moderationFailed'), variant: 'error' })
-    } finally {
-      setAutoApproveLoading(false)
+      setReverifyDialog({ open: false, userId: '', reason: '' })
     }
   }
 
@@ -421,26 +403,18 @@ export default function VerificationPage() {
         {/* ID Documents Tab - Passport / National ID */}
         <TabsContent value="idDocs">
           <div className="space-y-4">
-            {/* Auto-approve bar */}
             {pendingDocs.length > 0 && (
               <Card className="border-amber-200 bg-amber-50">
-                <CardContent className="p-4 flex items-center justify-between">
+                <CardContent className="p-4 flex items-center gap-3">
+                  <div className="rounded-full bg-white/80 p-2">
+                    <Shield className="h-5 w-5 text-amber-600" />
+                  </div>
                   <div className="flex items-center gap-3">
-                    <AlertTriangle className="h-5 w-5 text-amber-600" />
                     <div>
                       <p className="text-sm font-semibold text-amber-800">{pendingDocs.length} {t('verification.pendingDocuments')}</p>
-                      <p className="text-xs text-amber-700">{t('verification.autoApproveHint')}</p>
+                      <p className="text-xs text-amber-700">{t('verification.manualReviewOnly')}</p>
                     </div>
                   </div>
-                  <Button
-                    size="sm"
-                    className="bg-emerald-500 hover:bg-emerald-600 text-white gap-1.5"
-                    disabled={autoApproveLoading}
-                    onClick={handleAutoApprove}
-                  >
-                    {autoApproveLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
-                    {t('verification.autoApproveAll')}
-                  </Button>
                 </CardContent>
               </Card>
             )}
@@ -526,17 +500,17 @@ export default function VerificationPage() {
                           </Button>
                           <Button
                             size="sm"
-                            variant="destructive"
-                            className="flex-1 gap-1.5"
+                            variant="outline"
+                            className="flex-1 gap-1.5 border-amber-300 text-amber-700 hover:bg-amber-50 hover:text-amber-800"
                             disabled={docVerifyLoading === u.id}
-                            onClick={() => setRejectDialog({ open: true, userId: u.id, reason: '' })}
+                            onClick={() => setReverifyDialog({ open: true, userId: u.id, reason: '' })}
                           >
                             {docVerifyLoading === u.id ? (
                               <Loader2 className="h-3.5 w-3.5 animate-spin" />
                             ) : (
-                              <XCircle className="h-3.5 w-3.5" />
+                              <AlertTriangle className="h-3.5 w-3.5" />
                             )}
-                            {t('verification.reject')}
+                            {t('verification.requestReverify')}
                           </Button>
                         </div>
                       </div>
@@ -744,33 +718,34 @@ export default function VerificationPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Document Rejection Dialog */}
-      <Dialog open={rejectDialog.open} onOpenChange={(open) => setRejectDialog({ ...rejectDialog, open })}>
+      {/* Document Reverify Dialog */}
+      <Dialog open={reverifyDialog.open} onOpenChange={(open) => setReverifyDialog({ ...reverifyDialog, open })}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>{t('verification.rejectDocument')}</DialogTitle>
-            <DialogDescription>{t('verification.rejectDocDesc')}</DialogDescription>
+            <DialogTitle>{t('verification.reverifyDocument')}</DialogTitle>
+            <DialogDescription>{t('verification.reverifyDocDesc')}</DialogDescription>
           </DialogHeader>
           <div>
             <label className="text-sm font-medium">{t('verification.rejectionReason')}</label>
             <Textarea
               placeholder={t('verification.rejectionReasonPlaceholder')}
-              value={rejectDialog.reason}
-              onChange={(e) => setRejectDialog({ ...rejectDialog, reason: e.target.value })}
+              value={reverifyDialog.reason}
+              onChange={(e) => setReverifyDialog({ ...reverifyDialog, reason: e.target.value })}
               className="mt-1.5"
             />
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setRejectDialog({ open: false, userId: '', reason: '' })}>
+            <Button variant="outline" onClick={() => setReverifyDialog({ open: false, userId: '', reason: '' })}>
               {t('common.cancel')}
             </Button>
             <Button
-              variant="destructive"
-              onClick={() => handleDocVerify(rejectDialog.userId, false, rejectDialog.reason)}
-              disabled={docVerifyLoading === rejectDialog.userId}
+              variant="outline"
+              className="border-amber-300 text-amber-700 hover:bg-amber-50 hover:text-amber-800"
+              onClick={() => handleDocVerify(reverifyDialog.userId, false, reverifyDialog.reason.trim())}
+              disabled={docVerifyLoading === reverifyDialog.userId || reverifyDialog.reason.trim().length < 8}
             >
-              {docVerifyLoading === rejectDialog.userId ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <XCircle className="h-4 w-4 mr-1" />}
-              {t('verification.reject')}
+              {docVerifyLoading === reverifyDialog.userId ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <AlertTriangle className="h-4 w-4 mr-1" />}
+              {t('verification.requestReverify')}
             </Button>
           </DialogFooter>
         </DialogContent>

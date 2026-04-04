@@ -39,7 +39,15 @@ export function StaticContentTab() {
     setLoading(true)
     try {
       const res = await contentApi.getAllContent()
-      setContents(res.data || [])
+      const payload = res.data?.data || res.data
+      const list = Array.isArray(payload)
+        ? payload
+        : payload?.content || payload?.items || payload?.results || []
+      const normalized = (Array.isArray(list) ? list : []).map((content: any) => ({
+        ...content,
+        id: content.id || content._id,
+      }))
+      setContents(normalized)
     } catch (err) {
       toast({ title: 'Error', description: 'Failed to fetch contents', variant: 'error' })
     } finally {

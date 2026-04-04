@@ -26,7 +26,6 @@ import {
   Bell,
   Search,
   CreditCard,
-  Target,
   Activity,
   Headphones,
   Megaphone,
@@ -90,7 +89,6 @@ const navSections: NavSection[] = [
     items: [
       { to: '/activity', labelKey: 'nav.activityFeed', icon: Activity },
       { to: '/matches', labelKey: 'nav.matches', icon: Heart },
-      { to: '/matching', labelKey: 'nav.matchingEngine', icon: Target },
       { to: '/chat', labelKey: 'nav.conversations', icon: MessageSquare },
     ],
   },

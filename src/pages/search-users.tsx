@@ -25,24 +25,48 @@ export default function SearchUsersPage() {
   const [total, setTotal] = useState(0)
 
   // Search query (from header search bar or manual input)
-  const [searchQuery, setSearchQuery] = useState(searchParams.get('q') || '')
+  const urlQuery = (searchParams.get('q') || '').trim()
+  const [searchQuery, setSearchQuery] = useState(urlQuery)
+  const [submittedQuery, setSubmittedQuery] = useState(urlQuery)
 
   // Filters
   const [statusFilter, setStatusFilter] = useState<string>('all')
   const [roleFilter, setRoleFilter] = useState<string>('all')
   const [page, setPage] = useState(1)
 
-  // Search when URL query, filters, or page changes
+  // Sync with header search bar query (?q=...)
   useEffect(() => {
-    const q = searchParams.get('q') || ''
-    setSearchQuery(q)
-    performSearch(q, statusFilter, roleFilter)
-  }, [searchParams.get('q'), page, statusFilter, roleFilter])
-
-  // Reset to page 1 when query or filters change manually
-  const handleSearch = () => {
+    setSearchQuery(urlQuery)
+    setSubmittedQuery(urlQuery)
     setPage(1)
-    // The useEffect will trigger performSearch
+  }, [urlQuery])
+
+  // Perform search when submitted query, filters, or page changes
+  useEffect(() => {
+    performSearch(submittedQuery, statusFilter, roleFilter)
+  }, [submittedQuery, page, statusFilter, roleFilter])
+
+  const handleSearch = () => {
+    const nextQuery = searchQuery.trim()
+
+    // If nothing changed, still allow explicit retry while on same page.
+    if (nextQuery == submittedQuery && page === 1) {
+      performSearch(nextQuery, statusFilter, roleFilter)
+      return
+    }
+
+    setSubmittedQuery(nextQuery)
+    setPage(1)
+  }
+
+  const handleStatusFilterChange = (value: string) => {
+    setStatusFilter(value)
+    setPage(1)
+  }
+
+  const handleRoleFilterChange = (value: string) => {
+    setRoleFilter(value)
+    setPage(1)
   }
 
   const performSearch = async (query?: string, status?: string, role?: string) => {
@@ -84,7 +108,7 @@ export default function SearchUsersPage() {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
             <div className="lg:col-span-2">
               <label className="text-xs font-medium text-muted-foreground">Name or Email</label>
               <Input
@@ -96,7 +120,7 @@ export default function SearchUsersPage() {
             </div>
             <div>
               <label className="text-xs font-medium text-muted-foreground">{t('users.status')}</label>
-              <Select value={statusFilter} onValueChange={setStatusFilter}>
+              <Select value={statusFilter} onValueChange={handleStatusFilterChange}>
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
@@ -106,6 +130,20 @@ export default function SearchUsersPage() {
                   <SelectItem value="suspended">Suspended</SelectItem>
                   <SelectItem value="pending_verification">Pending</SelectItem>
                   <SelectItem value="deactivated">Deactivated</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <label className="text-xs font-medium text-muted-foreground">{t('users.role')}</label>
+              <Select value={roleFilter} onValueChange={handleRoleFilterChange}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">{t('users.allRoles')}</SelectItem>
+                  <SelectItem value="user">{t('users.user')}</SelectItem>
+                  <SelectItem value="moderator">{t('users.moderator')}</SelectItem>
+                  <SelectItem value="admin">{t('users.admin')}</SelectItem>
                 </SelectContent>
               </Select>
             </div>

@@ -66,7 +66,15 @@ export function JobsTab() {
     setLoading(true)
     try {
       const res = await contentApi.getAllJobs()
-      setJobs(res.data || [])
+      const payload = res.data?.data || res.data
+      const list = Array.isArray(payload)
+        ? payload
+        : payload?.jobs || payload?.items || payload?.results || []
+      const normalized = (Array.isArray(list) ? list : []).map((job: any) => ({
+        ...job,
+        id: job.id || job._id,
+      }))
+      setJobs(normalized)
     } catch (err) {
       toast({ title: 'Error', description: 'Failed to fetch jobs', variant: 'error' })
     } finally {

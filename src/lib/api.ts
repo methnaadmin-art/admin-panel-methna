@@ -2,16 +2,14 @@ import axios from 'axios'
 
 let API_BASE_URL = import.meta.env.VITE_API_URL || 'https://web-production-afbe4.up.railway.app/api/v1'
 
-// Force the correct URL in production to bypass any bad Railway Env variables
-if (import.meta.env.PROD) {
-  API_BASE_URL = 'https://web-production-afbe4.up.railway.app/api/v1';
-} else if (API_BASE_URL) {
-  API_BASE_URL = API_BASE_URL.replace(/['"]/g, '').trim();
+if (API_BASE_URL) {
+  API_BASE_URL = API_BASE_URL.replace(/['"]/g, '').trim()
   if (!API_BASE_URL.startsWith('http')) {
-    API_BASE_URL = `https://${API_BASE_URL}`;
+    API_BASE_URL = `https://${API_BASE_URL}`
   }
-  if (!API_BASE_URL.includes('/api/v1')) {
-    API_BASE_URL = `${API_BASE_URL.replace(/\/$/, '')}/api/v1`;
+  API_BASE_URL = API_BASE_URL.replace(/\/$/, '')
+  if (!API_BASE_URL.endsWith('/api/v1')) {
+    API_BASE_URL = `${API_BASE_URL}/api/v1`
   }
 }
 
@@ -141,8 +139,33 @@ export const adminApi = {
   // Photos
   getPendingPhotos: (page = 1, limit = 20) =>
     api.get('/admin/photos/pending', { params: { page, limit } }),
-  moderatePhoto: (id: string, status: string, moderationNote?: string) =>
-    api.patch(`/admin/photos/${id}/moderate`, { status, moderationNote }),
+  moderatePhoto: async (id: string, status: string, moderationNote?: string) => {
+    const candidates = Array.from(
+      new Set(
+        [status, status?.toUpperCase(), status?.toLowerCase()].filter(
+          (value): value is string => typeof value === 'string' && value.length > 0
+        )
+      )
+    )
+
+    let lastError: unknown
+    for (const candidate of candidates) {
+      try {
+        return await api.patch(`/admin/photos/${id}/moderate`, {
+          status: candidate,
+          moderationNote,
+        })
+      } catch (error: any) {
+        lastError = error
+        const statusCode = error?.response?.status
+        if (statusCode !== 400 && statusCode !== 422) {
+          break
+        }
+      }
+    }
+
+    throw lastError
+  },
 
   // Notifications
   sendNotification: (data: { userId?: string; title: string; body: string; type?: string; broadcast?: boolean }) =>

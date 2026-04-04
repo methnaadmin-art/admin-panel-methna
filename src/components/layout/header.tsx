@@ -39,7 +39,6 @@ const breadcrumbMap: Record<string, string[]> = {
   '/photos': ['breadcrumb.usersContent', 'breadcrumb.photos'],
   '/activity': ['breadcrumb.social', 'breadcrumb.activity'],
   '/matches': ['breadcrumb.social', 'breadcrumb.matches'],
-  '/matching': ['breadcrumb.social', 'breadcrumb.matching'],
   '/chat': ['breadcrumb.social', 'breadcrumb.chat'],
   '/notifications': ['breadcrumb.communication', 'breadcrumb.notifications'],
   '/send-notifications': ['breadcrumb.communication', 'breadcrumb.sendPush'],
@@ -83,12 +82,16 @@ export function Header() {
       .catch(() => {})
   }, [location.pathname])
 
+  useEffect(() => {
+    if (!location.pathname.startsWith('/search')) return
+    const currentQuery = new URLSearchParams(location.search).get('q') || ''
+    setSearchQuery(currentQuery)
+  }, [location.pathname, location.search])
+
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault()
-    if (searchQuery.trim()) {
-      navigate(`/search?q=${encodeURIComponent(searchQuery.trim())}`)
-      setSearchQuery('')
-    }
+    const query = searchQuery.trim()
+    navigate(query ? `/search?q=${encodeURIComponent(query)}` : '/search')
   }
 
   const switchLanguage = (lng: string) => {

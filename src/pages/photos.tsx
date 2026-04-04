@@ -27,16 +27,28 @@ export default function PhotosPage() {
   const [moderateDialog, setModerateDialog] = useState<{
     open: boolean
     photo: Photo | null
-    action: 'APPROVED' | 'REJECTED'
-  }>({ open: false, photo: null, action: 'APPROVED' })
+    action: 'approved' | 'rejected'
+  }>({ open: false, photo: null, action: 'approved' })
   const [moderationNote, setModerationNote] = useState('')
 
   const fetchPhotos = async () => {
     setLoading(true)
     try {
       const { data } = await adminApi.getPendingPhotos(page, 20)
-      setPhotos(data.photos || data || [])
-      setTotal(data.total || 0)
+      const payload = data?.data || data
+      const list = Array.isArray(payload)
+        ? payload
+        : payload?.photos || payload?.items || payload?.results || []
+      const totalCount =
+        typeof payload?.total === 'number'
+          ? payload.total
+          : typeof payload?.count === 'number'
+            ? payload.count
+            : Array.isArray(list)
+              ? list.length
+              : 0
+      setPhotos(Array.isArray(list) ? list : [])
+      setTotal(totalCount)
     } catch (err) {
       console.error(err)
     } finally {
@@ -54,9 +66,9 @@ export default function PhotosPage() {
         moderateDialog.action,
         moderationNote || undefined
       )
-      setModerateDialog({ open: false, photo: null, action: 'APPROVED' })
+      setModerateDialog({ open: false, photo: null, action: 'approved' })
       setModerationNote('')
-      fetchPhotos()
+      await fetchPhotos()
     } catch (err) {
       console.error(err)
     }
@@ -113,7 +125,7 @@ export default function PhotosPage() {
                     <Button
                       size="sm"
                       className="flex-1 gap-1"
-                      onClick={() => setModerateDialog({ open: true, photo, action: 'APPROVED' })}
+                      onClick={() => setModerateDialog({ open: true, photo, action: 'approved' })}
                     >
                       <CheckCircle className="h-3.5 w-3.5" /> {t('photos.approve')}
                     </Button>
@@ -121,7 +133,7 @@ export default function PhotosPage() {
                       size="sm"
                       variant="destructive"
                       className="flex-1 gap-1"
-                      onClick={() => setModerateDialog({ open: true, photo, action: 'REJECTED' })}
+                      onClick={() => setModerateDialog({ open: true, photo, action: 'rejected' })}
                     >
                       <XCircle className="h-3.5 w-3.5" /> {t('photos.reject')}
                     </Button>
@@ -152,10 +164,10 @@ export default function PhotosPage() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>
-              {moderateDialog.action === 'APPROVED' ? t('photos.approve') : t('photos.reject')}
+              {moderateDialog.action === 'approved' ? t('photos.approve') : t('photos.reject')}
             </DialogTitle>
             <DialogDescription>
-              {moderateDialog.action === 'APPROVED'
+              {moderateDialog.action === 'approved'
                 ? 'This photo will be visible to all users.'
                 : 'This photo will be hidden and the user will be notified.'}
             </DialogDescription>
@@ -168,19 +180,19 @@ export default function PhotosPage() {
             />
           )}
           <Textarea
-            placeholder={moderateDialog.action === 'REJECTED' ? 'Reason for rejection...' : 'Note (optional)'}
+            placeholder={moderateDialog.action === 'rejected' ? 'Reason for rejection...' : 'Note (optional)'}
             value={moderationNote}
             onChange={(e) => setModerationNote(e.target.value)}
           />
           <DialogFooter>
-            <Button variant="outline" onClick={() => setModerateDialog({ open: false, photo: null, action: 'APPROVED' })}>
+            <Button variant="outline" onClick={() => setModerateDialog({ open: false, photo: null, action: 'approved' })}>
               {t('common.cancel')}
             </Button>
             <Button
-              variant={moderateDialog.action === 'APPROVED' ? 'default' : 'destructive'}
+              variant={moderateDialog.action === 'approved' ? 'default' : 'destructive'}
               onClick={handleModerate}
             >
-              {moderateDialog.action === 'APPROVED' ? t('photos.approve') : t('photos.reject')}
+              {moderateDialog.action === 'approved' ? t('photos.approve') : t('photos.reject')}
             </Button>
           </DialogFooter>
         </DialogContent>

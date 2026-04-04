@@ -31,6 +31,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           localStorage.removeItem('admin_user')
         }
       } catch {
+        localStorage.removeItem('access_token')
+        localStorage.removeItem('refresh_token')
         localStorage.removeItem('admin_user')
       }
     }
@@ -46,6 +48,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     
     const accessToken = data.accessToken || data.access_token
     const refreshToken = data.refreshToken || data.refresh_token
+    if (!accessToken) {
+      throw new Error('Login response is missing an access token.')
+    }
 
     if (userData.role !== 'admin' && userData.role !== 'moderator') {
       throw new Error('Access denied. Admin or Moderator role required.')
