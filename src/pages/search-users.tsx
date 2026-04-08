@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import { adminApi } from '@/lib/api'
+import { adminApi, searchApi } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -15,6 +15,60 @@ import {
 } from '@/components/ui/select'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Loader2, Search, Eye, MapPin, ChevronLeft, ChevronRight } from 'lucide-react'
+
+type SearchResultUser = Record<string, any>
+
+const isRecord = (value: unknown): value is SearchResultUser =>
+  typeof value === 'object' && value !== null
+
+const extractResults = (payload: unknown): SearchResultUser[] => {
+  if (Array.isArray(payload)) {
+    return payload.filter(isRecord)
+  }
+
+  if (!isRecord(payload)) {
+    return []
+  }
+
+  for (const key of ['users', 'results', 'items', 'profiles', 'data']) {
+    const candidate = payload[key]
+    if (Array.isArray(candidate)) {
+      return candidate.filter(isRecord)
+    }
+    if (isRecord(candidate)) {
+      const nestedResults = extractResults(candidate)
+      if (nestedResults.length > 0) {
+        return nestedResults
+      }
+    }
+  }
+
+  return []
+}
+
+const extractTotal = (payload: unknown, fallback: number) => {
+  if (!isRecord(payload)) {
+    return fallback
+  }
+
+  for (const candidate of [
+    payload.total,
+    payload.totalCount,
+    payload.count,
+    payload.meta && isRecord(payload.meta) ? payload.meta.total : undefined,
+    payload.pagination && isRecord(payload.pagination) ? payload.pagination.total : undefined,
+  ]) {
+    if (typeof candidate === 'number' && Number.isFinite(candidate)) {
+      return candidate
+    }
+  }
+
+  if (isRecord(payload.data)) {
+    return extractTotal(payload.data, fallback)
+  }
+
+  return fallback
+}
 
 export default function SearchUsersPage() {
   const { t } = useTranslation()
@@ -48,11 +102,16 @@ export default function SearchUsersPage() {
 
   const handleSearch = () => {
     const nextQuery = searchQuery.trim()
+    const nextSearchUrl = nextQuery ? `/search?q=${encodeURIComponent(nextQuery)}` : '/search'
 
     // If nothing changed, still allow explicit retry while on same page.
-    if (nextQuery == submittedQuery && page === 1) {
+    if (nextQuery === submittedQuery && page === 1) {
       performSearch(nextQuery, statusFilter, roleFilter)
       return
+    }
+
+    if (nextQuery !== urlQuery) {
+      navigate(nextSearchUrl)
     }
 
     setSubmittedQuery(nextQuery)
@@ -72,16 +131,49 @@ export default function SearchUsersPage() {
   const performSearch = async (query?: string, status?: string, role?: string) => {
     setLoading(true)
     try {
-      const { data } = await adminApi.getUsers(
-        page,
-        20,
-        status !== 'all' ? status : undefined,
-        query?.trim() || undefined,
-        role !== 'all' ? role : undefined,
-      )
-      const list = Array.isArray(data) ? data : data?.users || []
+      const trimmedQuery = query?.trim()
+      const userListRequest = () =>
+        adminApi.getUsers(
+          page,
+          20,
+          status !== 'all' ? status : undefined,
+          trimmedQuery || undefined,
+          role !== 'all' ? role : undefined,
+        )
+
+      let payload: unknown
+
+      if (trimmedQuery) {
+        try {
+          const { data } = await searchApi.search({
+            q: trimmedQuery,
+            query: trimmedQuery,
+            search: trimmedQuery,
+            page,
+            limit: 20,
+            status: status !== 'all' ? status : undefined,
+            role: role !== 'all' ? role : undefined,
+          })
+          payload = data
+
+          const searchResults = extractResults(payload)
+          const searchTotal = extractTotal(payload, searchResults.length)
+
+          if (searchResults.length > 0 || searchTotal > 0) {
+            setResults(searchResults)
+            setTotal(searchTotal)
+            return
+          }
+        } catch (searchError) {
+          console.warn('Dedicated search endpoint failed, falling back to admin users search.', searchError)
+        }
+      }
+
+      const { data } = await userListRequest()
+      payload = data
+      const list = extractResults(payload)
       setResults(list)
-      setTotal(data?.total ?? list.length)
+      setTotal(extractTotal(payload, list.length))
     } catch (err) {
       console.error(err)
       setResults([])

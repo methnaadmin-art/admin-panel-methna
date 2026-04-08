@@ -13,7 +13,6 @@ import {
   LayoutDashboard,
   Users,
   Flag,
-  ImageIcon,
   BarChart3,
   Shield,
   Lock,
@@ -35,7 +34,6 @@ import {
   FileText,
   ScrollText,
   BookOpen,
-  Layers,
   Sparkles,
   Rocket,
   type LucideIcon,
@@ -72,8 +70,6 @@ const navSections: NavSection[] = [
       { to: '/users', labelKey: 'nav.allUsers', icon: Users },
       { to: '/search', labelKey: 'nav.searchDiscovery', icon: Search },
       { to: '/verification', labelKey: 'nav.verification', icon: FileCheck },
-      { to: '/photos', labelKey: 'nav.photoModeration', icon: ImageIcon },
-      { to: '/categories', labelKey: 'nav.categories', icon: Layers },
     ],
   },
   {
@@ -156,7 +152,7 @@ export function Sidebar() {
         const stats = res.data
         setBadges({
           '/reports': stats.reports?.pending || 0,
-          '/photos': stats.content?.pendingPhotos || 0,
+          '/verification': (stats.content?.pendingPhotos || 0) + (stats.users?.pendingVerification || 0),
         })
       })
       .catch(() => {})

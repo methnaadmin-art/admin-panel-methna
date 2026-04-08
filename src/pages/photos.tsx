@@ -66,6 +66,15 @@ export default function PhotosPage() {
         moderateDialog.action,
         moderationNote || undefined
       )
+
+      if (moderateDialog.photo.isSelfieVerification && moderateDialog.photo.userId) {
+        try {
+          await adminApi.verifySelfie(moderateDialog.photo.userId, moderateDialog.action === 'approved')
+        } catch (syncError) {
+          console.error('Failed to sync selfie verification state:', syncError)
+        }
+      }
+
       setModerateDialog({ open: false, photo: null, action: 'approved' })
       setModerationNote('')
       await fetchPhotos()

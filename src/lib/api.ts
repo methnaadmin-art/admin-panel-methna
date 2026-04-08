@@ -18,6 +18,8 @@ const api = axios.create({
   headers: { 'Content-Type': 'application/json' },
 })
 
+const ALTERNATIVE_REQUEST_STATUS_CODES = new Set([400, 404, 405, 422])
+
 // Attach JWT token + CSRF token + security headers to every request
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem('access_token')
@@ -79,6 +81,29 @@ api.interceptors.response.use(
   }
 )
 
+const shouldTryAlternativeRequest = (error: any) => {
+  const statusCode = error?.response?.status
+  return typeof statusCode === 'number' && ALTERNATIVE_REQUEST_STATUS_CODES.has(statusCode)
+}
+
+const tryApiRequests = async <T>(requests: Array<() => Promise<T>>) => {
+  let lastError: unknown
+
+  for (let index = 0; index < requests.length; index += 1) {
+    try {
+      return await requests[index]()
+    } catch (error) {
+      lastError = error
+      const hasMoreRequests = index < requests.length - 1
+      if (!hasMoreRequests || !shouldTryAlternativeRequest(error)) {
+        break
+      }
+    }
+  }
+
+  throw lastError
+}
+
 export default api
 
 // ── Auth ─────────────────────────────────────────────────────
@@ -105,20 +130,61 @@ export const adminApi = {
   getUserDetail: (id: string) => api.get(`/admin/users/${id}`),
   getUserActivity: (id: string) => api.get(`/admin/users/${id}/activity`),
   updateUser: (id: string, data: Record<string, any>) =>
-    api.put(`/admin/users/${id}`, data),
+    tryApiRequests([
+      () => api.patch(`/admin/users/${id}`, data),
+      () => api.put(`/admin/users/${id}`, data),
+    ]),
   updateUserStatus: (id: string, status: string) =>
     api.patch(`/admin/users/${id}/status`, { status }),
   deleteUser: (id: string) => api.delete(`/admin/users/${id}`),
 
   // Document Verification
-  getPendingDocuments: () => api.get('/admin/documents/pending'),
+  getPendingDocuments: () =>
+    tryApiRequests([
+      () => api.get('/admin/documents/pending'),
+      () => api.get('/admin/verification/documents/pending'),
+      () => api.get('/admin/users/pending-documents'),
+    ]),
   verifyDocument: (userId: string, approved: boolean, rejectionReason?: string) =>
-    api.patch(`/admin/documents/${userId}/verify`, { approved, rejectionReason }),
+    tryApiRequests([
+      () => api.patch(`/admin/documents/${userId}/verify`, { approved, rejectionReason }),
+      () => api.patch(`/admin/users/${userId}/document-verification`, { approved, rejectionReason }),
+      () => api.patch(`/admin/users/${userId}/verify-document`, { approved, rejectionReason }),
+      () => api.patch(`/admin/users/${userId}`, {
+        documentVerified: approved,
+        documentRejectionReason: approved ? null : rejectionReason ?? null,
+      }),
+      () => api.put(`/admin/users/${userId}`, {
+        documentVerified: approved,
+        documentRejectionReason: approved ? null : rejectionReason ?? null,
+      }),
+    ]),
+  verifySelfie: (userId: string, approved: boolean) =>
+    tryApiRequests([
+      () => api.patch(`/admin/users/${userId}/selfie-verification`, { approved }),
+      () => api.patch(`/admin/users/${userId}/verify-selfie`, { approved }),
+      () => api.patch(`/admin/users/${userId}`, { selfieVerified: approved }),
+      () => api.put(`/admin/users/${userId}`, { selfieVerified: approved }),
+    ]),
   autoApproveDocuments: () => api.post('/admin/documents/auto-approve'),
 
   // Swipes / Activity
-  getSwipes: (page = 1, limit = 20, type?: string) =>
-    api.get('/admin/swipes', { params: { page, limit, type } }),
+  getSwipes: (page = 1, limit = 20, type?: string) => {
+    const typeAliases = type === 'pass'
+      ? ['pass', 'dislike']
+      : type === 'dislike'
+        ? ['dislike', 'pass']
+        : [type]
+
+    const requests = typeAliases.flatMap((typeAlias) => ([
+      () => api.get('/admin/swipes', { params: { page, limit, type: typeAlias } }),
+      () => api.get('/admin/activity', { params: { page, limit, type: typeAlias } }),
+      () => api.get('/admin/activity-feed', { params: { page, limit, type: typeAlias } }),
+      () => api.get('/admin/swipes', { params: { page, limit, actionType: typeAlias } }),
+    ]))
+
+    return tryApiRequests(requests)
+  },
 
   // Matches
   getMatches: (page = 1, limit = 20) =>
@@ -201,28 +267,71 @@ export const adminApi = {
 
   // Daily Insights
   getDailyInsights: (page = 1, limit = 20) =>
-    api.get('/daily-insights/admin', { params: { page, limit } }),
+    tryApiRequests([
+      () => api.get('/daily-insights/admin', { params: { page, limit } }),
+      () => api.get('/admin/daily-insights', { params: { page, limit } }),
+      () => api.get('/daily-insights', { params: { page, limit } }),
+    ]),
   createDailyInsight: (data: { content: string; author?: string; category?: string; scheduledDate?: string }) =>
-    api.post('/daily-insights', data),
+    tryApiRequests([
+      () => api.post('/daily-insights', data),
+      () => api.post('/admin/daily-insights', data),
+    ]),
   updateDailyInsight: (id: string, data: Record<string, any>) =>
-    api.put(`/daily-insights/${id}`, data),
+    tryApiRequests([
+      () => api.patch(`/daily-insights/${id}`, data),
+      () => api.put(`/daily-insights/${id}`, data),
+      () => api.patch(`/admin/daily-insights/${id}`, data),
+      () => api.put(`/admin/daily-insights/${id}`, data),
+    ]),
   deleteDailyInsight: (id: string) =>
-    api.delete(`/daily-insights/${id}`),
+    tryApiRequests([
+      () => api.delete(`/daily-insights/${id}`),
+      () => api.delete(`/admin/daily-insights/${id}`),
+    ]),
   seedDailyInsights: () =>
-    api.post('/daily-insights/seed'),
+    tryApiRequests([
+      () => api.post('/daily-insights/seed'),
+      () => api.post('/admin/daily-insights/seed'),
+    ]),
 }
 
 // ── Analytics ────────────────────────────────────────────────
 
 export const analyticsApi = {
-  getDashboard: () => api.get('/analytics/dashboard'),
-  getDau: (date?: string) => api.get('/analytics/dau', { params: { date } }),
+  getDashboard: () =>
+    tryApiRequests([
+      () => api.get('/analytics/dashboard'),
+      () => api.get('/admin/analytics/dashboard'),
+      () => api.get('/analytics/admin/dashboard'),
+    ]),
+  getDau: (date?: string) =>
+    tryApiRequests([
+      () => api.get('/analytics/dau', { params: { date } }),
+      () => api.get('/analytics/daily-active-users', { params: { date } }),
+      () => api.get('/admin/analytics/dau', { params: { date } }),
+      () => api.get('/admin/analytics/daily-active-users', { params: { date } }),
+    ]),
   getConversion: (days = 30) =>
-    api.get('/analytics/conversion', { params: { days } }),
+    tryApiRequests([
+      () => api.get('/analytics/conversion', { params: { days } }),
+      () => api.get('/analytics/conversion-rate', { params: { days } }),
+      () => api.get('/admin/analytics/conversion', { params: { days } }),
+      () => api.get('/admin/analytics/conversion-rate', { params: { days } }),
+    ]),
   getRetention: (cohortDays = 7) =>
-    api.get('/analytics/retention', { params: { cohortDays } }),
+    tryApiRequests([
+      () => api.get('/analytics/retention', { params: { cohortDays } }),
+      () => api.get('/admin/analytics/retention', { params: { cohortDays } }),
+      () => api.get('/analytics/retention-cohort', { params: { cohortDays } }),
+    ]),
   getMatchesOverTime: (days = 30) =>
-    api.get('/analytics/matches-over-time', { params: { days } }),
+    tryApiRequests([
+      () => api.get('/analytics/matches-over-time', { params: { days } }),
+      () => api.get('/admin/analytics/matches-over-time', { params: { days } }),
+      () => api.get('/analytics/matches-timeline', { params: { days } }),
+      () => api.get('/analytics/matches-over-time', { params: { rangeDays: days } }),
+    ]),
 }
 
 // ── Trust & Safety ───────────────────────────────────────────
@@ -254,13 +363,6 @@ export const securityApi = {
 }
 
 // ── Matching ────────────────────────────────────────────────
-
-export const matchingApi = {
-  getSmartSuggestions: () => api.get('/matching/smart-suggestions'),
-  precomputeCompatibility: () => api.post('/matching/precompute-compatibility'),
-  getCompatibility: (targetUserId: string) =>
-    api.get(`/matching/compatibility/${targetUserId}`),
-}
 
 // ── Monetization ────────────────────────────────────────────
 

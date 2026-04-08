@@ -1,58 +1,256 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { analyticsApi } from '@/lib/api'
+import { adminApi, analyticsApi } from '@/lib/api'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { StatsCard } from '@/components/stats-card'
 import { Loader2, Users, TrendingUp, Heart, Repeat } from 'lucide-react'
 import {
-  LineChart,
-  Line,
-  AreaChart,
   Area,
-  BarChart,
+  AreaChart,
   Bar,
+  BarChart,
+  CartesianGrid,
+  ResponsiveContainer,
+  Tooltip,
   XAxis,
   YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-  Legend,
 } from 'recharts'
+import type { DashboardStats } from '@/types'
+
+type AnalyticsRecord = Record<string, any>
+
+interface AnalyticsDashboardView {
+  totalUsers?: number
+  dailyActiveUsers?: number
+  totalMatches?: number
+  matchesToday?: number
+  totalMessages?: number
+  premiumUsers?: number
+  conversionRate?: number
+  retentionRate?: number
+}
+
+interface ConversionView {
+  totalLikes?: number
+  totalMatches?: number
+  conversionRate?: number
+}
+
+interface RetentionView {
+  cohortSize?: number
+  retainedUsers?: number
+  retentionRate?: number
+}
+
+const isRecord = (value: unknown): value is AnalyticsRecord =>
+  typeof value === 'object' && value !== null
+
+const parseNumber = (value: unknown) => {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value
+  }
+
+  if (typeof value === 'string') {
+    const trimmed = value.trim()
+    if (!trimmed) return undefined
+
+    const normalized = trimmed.endsWith('%') ? trimmed.slice(0, -1) : trimmed
+    const parsed = Number(normalized)
+    if (Number.isFinite(parsed)) {
+      return parsed
+    }
+  }
+
+  return undefined
+}
+
+const firstNumber = (...values: unknown[]) => {
+  for (const value of values) {
+    const parsed = parseNumber(value)
+    if (parsed !== undefined) {
+      return parsed
+    }
+  }
+
+  return undefined
+}
+
+const firstString = (...values: unknown[]) => {
+  for (const value of values) {
+    if (typeof value === 'string' && value.trim().length > 0) {
+      return value
+    }
+  }
+
+  return ''
+}
+
+const unwrapRecord = (payload: unknown): AnalyticsRecord | null => {
+  if (!isRecord(payload)) {
+    return null
+  }
+
+  const nestedCandidates = [payload.data, payload.analytics, payload.summary, payload.metrics]
+  for (const candidate of nestedCandidates) {
+    if (isRecord(candidate)) {
+      return candidate
+    }
+  }
+
+  return payload
+}
+
+const extractArray = (payload: unknown): AnalyticsRecord[] => {
+  if (Array.isArray(payload)) {
+    return payload.filter(isRecord)
+  }
+
+  if (!isRecord(payload)) {
+    return []
+  }
+
+  for (const key of ['items', 'results', 'series', 'data', 'rows', 'timeline', 'matches']) {
+    const candidate = payload[key]
+    if (Array.isArray(candidate)) {
+      return candidate.filter(isRecord)
+    }
+    if (isRecord(candidate)) {
+      const nested = extractArray(candidate)
+      if (nested.length > 0) {
+        return nested
+      }
+    }
+  }
+
+  return []
+}
+
+const formatPercent = (value?: number) => {
+  if (value === undefined) return '-'
+  const normalized = value > 1 ? value : value * 100
+  return `${normalized.toFixed(1)}%`
+}
+
+const normalizeDashboard = (payload: unknown, stats: DashboardStats | null): AnalyticsDashboardView => {
+  const source = unwrapRecord(payload)
+  const engagement = source && isRecord(source.engagement) ? source.engagement : null
+  const retention = source && isRecord(source.retention) ? source.retention : null
+
+  return {
+    totalUsers: firstNumber(source?.totalUsers, source?.users, stats?.users.total),
+    dailyActiveUsers: firstNumber(source?.dailyActiveUsers, source?.dau, engagement?.dau),
+    totalMatches: firstNumber(source?.totalMatches, source?.matches, stats?.content.totalMatches),
+    matchesToday: firstNumber(source?.matchesToday, source?.todayMatches),
+    totalMessages: firstNumber(source?.totalMessages, source?.messages, stats?.content.totalMessages),
+    premiumUsers: firstNumber(source?.premiumUsers, stats?.revenue.premiumUsers),
+    conversionRate: firstNumber(source?.conversionRate, source?.conversion, stats?.revenue.conversionRate),
+    retentionRate: firstNumber(source?.retentionRate, retention?.day7, source?.retention),
+  }
+}
+
+const normalizeMatchesData = (payload: unknown) =>
+  extractArray(payload)
+    .map((item, index) => ({
+      date: firstString(item.date, item.day, item.label, item.name, item.period, item.createdAt) || `Item ${index + 1}`,
+      count: firstNumber(item.count, item.matches, item.total, item.value) ?? 0,
+    }))
+    .filter((item) => item.count > 0 || item.date.startsWith('Item ') === false)
+
+const normalizeConversion = (
+  payload: unknown,
+  stats: DashboardStats | null,
+  dashboard: AnalyticsDashboardView,
+): ConversionView => {
+  const source = unwrapRecord(payload)
+  const totalLikes = firstNumber(source?.totalLikes, source?.likes, stats?.swipes.totalLikes)
+  const totalMatches = firstNumber(source?.totalMatches, source?.matches, dashboard.totalMatches, stats?.content.totalMatches)
+  const directRate = firstNumber(source?.conversionRate, source?.rate, dashboard.conversionRate, stats?.revenue.conversionRate)
+  const derivedRate = totalLikes && totalLikes > 0 && totalMatches !== undefined ? totalMatches / totalLikes : undefined
+
+  return {
+    totalLikes,
+    totalMatches,
+    conversionRate: directRate ?? derivedRate,
+  }
+}
+
+const normalizeRetention = (payload: unknown, dashboard: AnalyticsDashboardView): RetentionView => {
+  const source = unwrapRecord(payload)
+  return {
+    cohortSize: firstNumber(source?.cohortSize, source?.size, source?.totalUsers),
+    retainedUsers: firstNumber(source?.retainedUsers, source?.retained, source?.activeUsers),
+    retentionRate: firstNumber(source?.retentionRate, source?.rate, dashboard.retentionRate),
+  }
+}
+
+const normalizeDau = (payload: unknown, dashboard: AnalyticsDashboardView) => {
+  const source = unwrapRecord(payload)
+  return firstNumber(source?.dau, source?.dailyActiveUsers, source?.value, payload, dashboard.dailyActiveUsers)
+}
 
 export default function AnalyticsPage() {
   const { t } = useTranslation()
-  const [dashboard, setDashboard] = useState<any>(null)
-  const [matchesData, setMatchesData] = useState<any[]>([])
-  const [conversion, setConversion] = useState<any>(null)
-  const [retention, setRetention] = useState<any>(null)
-  const [dau, setDau] = useState<any>(null)
+  const [dashboard, setDashboard] = useState<AnalyticsDashboardView | null>(null)
+  const [matchesData, setMatchesData] = useState<Array<{ date: string; count: number }>>([])
+  const [conversion, setConversion] = useState<ConversionView | null>(null)
+  const [retention, setRetention] = useState<RetentionView | null>(null)
+  const [dau, setDau] = useState<number | undefined>(undefined)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     const load = async () => {
       try {
-        const [dashRes, matchRes, convRes, retRes, dauRes] = await Promise.allSettled([
+        const [dashRes, matchRes, convRes, retRes, dauRes, statsRes] = await Promise.allSettled([
           analyticsApi.getDashboard(),
           analyticsApi.getMatchesOverTime(30),
           analyticsApi.getConversion(30),
           analyticsApi.getRetention(7),
           analyticsApi.getDau(),
+          adminApi.getStats(),
         ])
 
-        if (dashRes.status === 'fulfilled') setDashboard(dashRes.value.data)
-        if (matchRes.status === 'fulfilled') {
-          const raw = matchRes.value.data
-          setMatchesData(Array.isArray(raw) ? raw : [])
-        }
-        if (convRes.status === 'fulfilled') setConversion(convRes.value.data)
-        if (retRes.status === 'fulfilled') setRetention(retRes.value.data)
-        if (dauRes.status === 'fulfilled') setDau(dauRes.value.data)
+        const statsPayload =
+          statsRes.status === 'fulfilled' && isRecord(statsRes.value.data)
+            ? (statsRes.value.data as DashboardStats)
+            : null
+
+        const dashboardView = normalizeDashboard(
+          dashRes.status === 'fulfilled' ? dashRes.value.data : null,
+          statsPayload,
+        )
+
+        setDashboard(dashboardView)
+        setMatchesData(
+          matchRes.status === 'fulfilled'
+            ? normalizeMatchesData(matchRes.value.data)
+            : []
+        )
+        setConversion(
+          normalizeConversion(
+            convRes.status === 'fulfilled' ? convRes.value.data : null,
+            statsPayload,
+            dashboardView,
+          )
+        )
+        setRetention(
+          normalizeRetention(
+            retRes.status === 'fulfilled' ? retRes.value.data : null,
+            dashboardView,
+          )
+        )
+        setDau(
+          normalizeDau(
+            dauRes.status === 'fulfilled' ? dauRes.value.data : null,
+            dashboardView,
+          )
+        )
       } catch (err) {
         console.error(err)
       } finally {
         setLoading(false)
       }
     }
+
     load()
   }, [])
 
@@ -64,25 +262,44 @@ export default function AnalyticsPage() {
     )
   }
 
+  const hasDashboardMetrics = Boolean(
+    dashboard && [
+      dashboard.totalUsers,
+      dashboard.totalMatches,
+      dashboard.totalMessages,
+      dashboard.premiumUsers,
+      dashboard.dailyActiveUsers,
+      dashboard.matchesToday,
+    ].some((value) => value !== undefined)
+  )
+
+  if (!hasDashboardMetrics && matchesData.length === 0) {
+    return <div className="text-center text-muted-foreground">{t('common.noData')}</div>
+  }
+
   return (
     <div className="space-y-6">
-      {/* KPI Cards */}
+      <div>
+        <h1 className="text-2xl font-bold">{t('analytics.title')}</h1>
+        <p className="text-muted-foreground">{t('analytics.subtitle')}</p>
+      </div>
+
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatsCard
           title={t('dashboard.dau')}
-          value={dau?.dau ?? dashboard?.dailyActiveUsers ?? '-'}
+          value={dau ?? dashboard?.dailyActiveUsers ?? '-'}
           icon={Users}
         />
         <StatsCard
           title={t('dashboard.conversionRate')}
-          value={conversion?.conversionRate != null ? `${(conversion.conversionRate * 100).toFixed(1)}%` : dashboard?.conversionRate != null ? `${dashboard.conversionRate}%` : '-'}
+          value={formatPercent(conversion?.conversionRate ?? dashboard?.conversionRate)}
           subtitle={t('analytics.likesToMatches')}
           icon={TrendingUp}
           iconColor="text-blue-500"
         />
         <StatsCard
           title={t('dashboard.retention')}
-          value={retention?.retentionRate != null ? `${(retention.retentionRate * 100).toFixed(1)}%` : '-'}
+          value={formatPercent(retention?.retentionRate ?? dashboard?.retentionRate)}
           subtitle={t('analytics.sevenDayCohort')}
           icon={Repeat}
           iconColor="text-amber-500"
@@ -95,9 +312,7 @@ export default function AnalyticsPage() {
         />
       </div>
 
-      {/* Charts */}
       <div className="grid gap-6 lg:grid-cols-2">
-        {/* Matches Over Time */}
         <Card>
           <CardHeader>
             <CardTitle className="text-lg">{t('dashboard.matchesOverTime')}</CardTitle>
@@ -127,20 +342,19 @@ export default function AnalyticsPage() {
           </CardContent>
         </Card>
 
-        {/* Platform Stats */}
         <Card>
           <CardHeader>
             <CardTitle className="text-lg">{t('analytics.platformOverview')}</CardTitle>
           </CardHeader>
           <CardContent>
-            {dashboard ? (
+            {hasDashboardMetrics ? (
               <ResponsiveContainer width="100%" height={300}>
                 <BarChart
                   data={[
-                    { name: 'Users', value: dashboard.totalUsers || 0 },
-                    { name: 'Matches', value: dashboard.totalMatches || 0 },
-                    { name: 'Messages', value: dashboard.totalMessages || 0 },
-                    { name: 'Premium', value: dashboard.premiumUsers || 0 },
+                    { name: 'Users', value: dashboard?.totalUsers || 0 },
+                    { name: 'Matches', value: dashboard?.totalMatches || 0 },
+                    { name: 'Messages', value: dashboard?.totalMessages || 0 },
+                    { name: 'Premium', value: dashboard?.premiumUsers || 0 },
                   ]}
                 >
                   <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
@@ -157,59 +371,54 @@ export default function AnalyticsPage() {
         </Card>
       </div>
 
-      {/* Conversion & Retention Details */}
       <div className="grid gap-6 lg:grid-cols-2">
-        {conversion && (
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-lg">{t('analytics.likeToMatchConversion')}</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <div className="grid grid-cols-3 gap-4">
-                <div className="rounded-lg border p-3 text-center">
-                  <p className="text-2xl font-bold">{conversion.totalLikes ?? '-'}</p>
-                  <p className="text-xs text-muted-foreground">{t('dashboard.totalLikes')}</p>
-                </div>
-                <div className="rounded-lg border p-3 text-center">
-                  <p className="text-2xl font-bold">{conversion.totalMatches ?? '-'}</p>
-                  <p className="text-xs text-muted-foreground">{t('dashboard.totalMatches')}</p>
-                </div>
-                <div className="rounded-lg border p-3 text-center">
-                  <p className="text-2xl font-bold text-primary">
-                    {conversion.conversionRate != null ? `${(conversion.conversionRate * 100).toFixed(1)}%` : '-'}
-                  </p>
-                  <p className="text-xs text-muted-foreground">{t('dashboard.conversionRate')}</p>
-                </div>
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg">{t('analytics.likeToMatchConversion')}</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="grid grid-cols-3 gap-4">
+              <div className="rounded-lg border p-3 text-center">
+                <p className="text-2xl font-bold">{conversion?.totalLikes ?? '-'}</p>
+                <p className="text-xs text-muted-foreground">{t('dashboard.totalLikes')}</p>
               </div>
-            </CardContent>
-          </Card>
-        )}
+              <div className="rounded-lg border p-3 text-center">
+                <p className="text-2xl font-bold">{conversion?.totalMatches ?? dashboard?.totalMatches ?? '-'}</p>
+                <p className="text-xs text-muted-foreground">{t('dashboard.totalMatches')}</p>
+              </div>
+              <div className="rounded-lg border p-3 text-center">
+                <p className="text-2xl font-bold text-primary">
+                  {formatPercent(conversion?.conversionRate ?? dashboard?.conversionRate)}
+                </p>
+                <p className="text-xs text-muted-foreground">{t('dashboard.conversionRate')}</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
 
-        {retention && (
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-lg">{t('analytics.userRetention')}</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <div className="grid grid-cols-3 gap-4">
-                <div className="rounded-lg border p-3 text-center">
-                  <p className="text-2xl font-bold">{retention.cohortSize ?? '-'}</p>
-                  <p className="text-xs text-muted-foreground">{t('analytics.cohortSize')}</p>
-                </div>
-                <div className="rounded-lg border p-3 text-center">
-                  <p className="text-2xl font-bold">{retention.retainedUsers ?? '-'}</p>
-                  <p className="text-xs text-muted-foreground">{t('analytics.retained')}</p>
-                </div>
-                <div className="rounded-lg border p-3 text-center">
-                  <p className="text-2xl font-bold text-primary">
-                    {retention.retentionRate != null ? `${(retention.retentionRate * 100).toFixed(1)}%` : '-'}
-                  </p>
-                  <p className="text-xs text-muted-foreground">{t('dashboard.retention')}</p>
-                </div>
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg">{t('analytics.userRetention')}</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="grid grid-cols-3 gap-4">
+              <div className="rounded-lg border p-3 text-center">
+                <p className="text-2xl font-bold">{retention?.cohortSize ?? '-'}</p>
+                <p className="text-xs text-muted-foreground">{t('analytics.cohortSize')}</p>
               </div>
-            </CardContent>
-          </Card>
-        )}
+              <div className="rounded-lg border p-3 text-center">
+                <p className="text-2xl font-bold">{retention?.retainedUsers ?? '-'}</p>
+                <p className="text-xs text-muted-foreground">{t('analytics.retained')}</p>
+              </div>
+              <div className="rounded-lg border p-3 text-center">
+                <p className="text-2xl font-bold text-primary">
+                  {formatPercent(retention?.retentionRate ?? dashboard?.retentionRate)}
+                </p>
+                <p className="text-xs text-muted-foreground">{t('dashboard.retention')}</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
       </div>
     </div>
   )

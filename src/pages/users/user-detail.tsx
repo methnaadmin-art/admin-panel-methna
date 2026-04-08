@@ -254,6 +254,31 @@ export default function UserDetailPage() {
     }
   }
 
+  const handlePhotoModeration = async (photoId: string, approved: boolean, isSelfieVerification: boolean) => {
+    if (!id) return
+
+    try {
+      await adminApi.moderatePhoto(photoId, approved ? 'approved' : 'rejected')
+
+      if (isSelfieVerification) {
+        await adminApi.verifySelfie(id, approved)
+      }
+
+      await reload()
+      toast({
+        title: approved ? 'Photo Approved' : 'Photo Rejected',
+        description: isSelfieVerification
+          ? approved
+            ? 'Selfie verification status was updated.'
+            : 'Selfie verification status was reset.'
+          : 'Photo moderation status was updated.',
+        variant: approved ? 'success' : 'warning',
+      })
+    } catch (err) {
+      toast({ title: 'Error', description: 'Failed to moderate photo', variant: 'error' })
+    }
+  }
+
   if (loading) {
     return (
       <div className="flex h-64 items-center justify-center">
@@ -657,10 +682,19 @@ export default function UserDetailPage() {
                     {photo.isSelfieVerification && <Badge className="text-[9px] bg-blue-500">Selfie</Badge>}
                   </div>
                   <div className="absolute bottom-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity flex gap-1">
-                    <Button size="icon" className="h-7 w-7 bg-emerald-500 hover:bg-emerald-600" onClick={() => adminApi.moderatePhoto(photo.id, 'approved').then(reload)}>
+                    <Button
+                      size="icon"
+                      className="h-7 w-7 bg-emerald-500 hover:bg-emerald-600"
+                      onClick={() => handlePhotoModeration(photo.id, true, photo.isSelfieVerification)}
+                    >
                       <CheckCircle2 className="h-3.5 w-3.5" />
                     </Button>
-                    <Button size="icon" variant="destructive" className="h-7 w-7" onClick={() => adminApi.moderatePhoto(photo.id, 'rejected').then(reload)}>
+                    <Button
+                      size="icon"
+                      variant="destructive"
+                      className="h-7 w-7"
+                      onClick={() => handlePhotoModeration(photo.id, false, photo.isSelfieVerification)}
+                    >
                       <XCircle className="h-3.5 w-3.5" />
                     </Button>
                   </div>

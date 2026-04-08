@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import { adminApi, trustSafetyApi } from '@/lib/api'
+import { adminApi } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
+import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import {
   Dialog,
@@ -16,13 +16,6 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Textarea } from '@/components/ui/textarea'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
 import { useToast } from '@/components/ui/toast'
 import {
   FileCheck,
@@ -73,6 +66,142 @@ interface PendingDocUser {
   documentVerified: boolean
   status: string
   createdAt: string
+}
+
+type ApiRecord = Record<string, any>
+
+const isRecord = (value: unknown): value is ApiRecord =>
+  typeof value === 'object' && value !== null
+
+const firstString = (...values: unknown[]) => {
+  for (const value of values) {
+    if (typeof value === 'string' && value.trim().length > 0) {
+      return value
+    }
+  }
+  return ''
+}
+
+const firstBoolean = (...values: unknown[]) => {
+  for (const value of values) {
+    if (typeof value === 'boolean') {
+      return value
+    }
+  }
+  return false
+}
+
+const extractItems = (payload: unknown): ApiRecord[] => {
+  if (Array.isArray(payload)) {
+    return payload.filter(isRecord)
+  }
+
+  if (!isRecord(payload)) {
+    return []
+  }
+
+  for (const key of ['users', 'documents', 'items', 'results', 'data']) {
+    const candidate = payload[key]
+    if (Array.isArray(candidate)) {
+      return candidate.filter(isRecord)
+    }
+    if (isRecord(candidate)) {
+      const nestedItems = extractItems(candidate)
+      if (nestedItems.length > 0) {
+        return nestedItems
+      }
+    }
+  }
+
+  return []
+}
+
+const uniqueById = <T extends { id: string }>(items: T[]) => {
+  const seen = new Map<string, T>()
+  items.forEach((item) => {
+    if (item.id) {
+      seen.set(item.id, item)
+    }
+  })
+  return Array.from(seen.values())
+}
+
+const normalizePendingSelfieUser = (record: ApiRecord): PendingVerificationUser | null => {
+  const nestedUser = isRecord(record.user) ? record.user : null
+  const verification = isRecord(record.verification) ? record.verification : null
+  const selfie = isRecord(record.selfie) ? record.selfie : null
+
+  const id = firstString(record.userId, nestedUser?.id, record.id)
+  const selfieUrl = firstString(
+    record.selfieUrl,
+    selfie?.url,
+    verification?.selfieUrl,
+    nestedUser?.selfieUrl,
+  )
+
+  if (!id || !selfieUrl) {
+    return null
+  }
+
+  return {
+    id,
+    firstName: firstString(record.firstName, nestedUser?.firstName) || 'User',
+    lastName: firstString(record.lastName, nestedUser?.lastName),
+    email: firstString(record.email, nestedUser?.email),
+    selfieUrl,
+    selfieVerified: firstBoolean(record.selfieVerified, nestedUser?.selfieVerified, verification?.selfieVerified),
+    status: firstString(record.status, nestedUser?.status) || 'pending_verification',
+    createdAt: firstString(record.createdAt, record.updatedAt, nestedUser?.createdAt) || new Date().toISOString(),
+  }
+}
+
+const normalizePendingDocUser = (record: ApiRecord): PendingDocUser | null => {
+  const nestedUser = isRecord(record.user) ? record.user : null
+  const verification = isRecord(record.verification) ? record.verification : null
+  const document = isRecord(record.document) ? record.document : null
+
+  const id = firstString(record.userId, nestedUser?.id, record.id)
+  const documentUrl = firstString(
+    record.documentUrl,
+    record.identityDocumentUrl,
+    record.idDocumentUrl,
+    record.maritalDocumentUrl,
+    record.martialDocumentUrl,
+    record.marriageDocumentUrl,
+    document?.url,
+    verification?.documentUrl,
+    nestedUser?.documentUrl,
+  )
+
+  if (!id || !documentUrl) {
+    return null
+  }
+
+  return {
+    id,
+    firstName: firstString(record.firstName, nestedUser?.firstName) || 'User',
+    lastName: firstString(record.lastName, nestedUser?.lastName),
+    email: firstString(record.email, nestedUser?.email),
+    documentUrl,
+    documentType: firstString(
+      record.documentType,
+      record.identityDocumentType,
+      record.maritalDocumentType,
+      record.martialDocumentType,
+      document?.type,
+      verification?.documentType,
+      nestedUser?.documentType,
+    ),
+    documentVerified: firstBoolean(
+      record.documentVerified,
+      record.isDocumentVerified,
+      document?.verified,
+      verification?.documentVerified,
+      nestedUser?.documentVerified,
+    ),
+    status: firstString(record.status, nestedUser?.status) || 'pending_verification',
+    createdAt: firstString(record.createdAt, record.updatedAt, nestedUser?.createdAt) || new Date().toISOString(),
+  }
 }
 
 export default function VerificationPage() {
@@ -128,8 +257,11 @@ export default function VerificationPage() {
     setDocLoading(true)
     try {
       const { data } = await adminApi.getUsers(1, 100, 'pending_verification')
-      const users = (data.users || data || []).filter(
-        (u: any) => u.selfieUrl && !u.selfieVerified
+      const users = uniqueById(
+        extractItems(data)
+          .map(normalizePendingSelfieUser)
+          .filter((user): user is PendingVerificationUser => user !== null)
+          .filter((user) => !user.selfieVerified)
       )
       setDocUsers(users)
     } catch (err) {
@@ -142,9 +274,25 @@ export default function VerificationPage() {
   const fetchPendingDocs = async () => {
     setPendingDocsLoading(true)
     try {
-      const { data } = await adminApi.getPendingDocuments()
-      const docs: PendingDocUser[] = Array.isArray(data) ? data : (data.users || data.documents || [])
-      setPendingDocs(docs)
+      const [pendingDocsResult, usersResult] = await Promise.allSettled([
+        adminApi.getPendingDocuments(),
+        adminApi.getUsers(1, 100, 'pending_verification'),
+      ])
+
+      const normalizedDocs = [
+        pendingDocsResult,
+        usersResult,
+      ].flatMap((result) => {
+        if (result.status !== 'fulfilled') {
+          return []
+        }
+
+        return extractItems(result.value.data)
+          .map(normalizePendingDocUser)
+          .filter((doc): doc is PendingDocUser => Boolean(doc))
+      })
+
+      setPendingDocs(uniqueById(normalizedDocs.filter((doc) => !doc.documentVerified)))
     } catch (err) {
       console.error(err)
     } finally {
@@ -161,15 +309,12 @@ export default function VerificationPage() {
   const handleDocAction = async (userId: string, approved: boolean) => {
     setDocActionLoading(userId)
     try {
-      await adminApi.updateUser(userId, {
-        selfieVerified: approved,
-        status: approved ? 'active' : 'pending_verification',
-      })
+      await adminApi.verifySelfie(userId, approved)
       toast({
         title: approved ? t('verification.approved') : t('verification.rejected'),
         description: approved
-          ? t('verification.docApprovedDesc')
-          : t('verification.docRejectedDesc'),
+          ? t('verification.selfieApprovedDesc')
+          : t('verification.selfieRejectedDesc'),
         variant: approved ? 'success' : 'warning',
       })
       fetchDocUsers()
@@ -204,18 +349,34 @@ export default function VerificationPage() {
     if (!actionDialog.photo) return
     setActionLoading(true)
     try {
+      let selfieStatusSynced = true
       await adminApi.moderatePhoto(
         actionDialog.photo.id,
         actionDialog.action,
         actionDialog.note || undefined
       )
+
+      if (actionDialog.photo.isSelfieVerification && actionDialog.photo.userId) {
+        try {
+          await adminApi.verifySelfie(actionDialog.photo.userId, actionDialog.action === 'approved')
+        } catch (syncError) {
+          selfieStatusSynced = false
+          console.error(syncError)
+        }
+      }
+
       toast({
         title: actionDialog.action === 'approved' ? t('verification.approved') : t('verification.rejected'),
-        description: `${actionDialog.photo.user?.firstName || 'user'} - ${actionDialog.action}`,
-        variant: actionDialog.action === 'approved' ? 'success' : 'warning',
+        description: selfieStatusSynced
+          ? `${actionDialog.photo.user?.firstName || 'user'} - ${actionDialog.action}`
+          : t('verification.selfieSyncWarning'),
+        variant: selfieStatusSynced
+          ? actionDialog.action === 'approved' ? 'success' : 'warning'
+          : 'warning',
       })
       setActionDialog({ open: false, photo: null, action: '', note: '' })
       fetchPhotos()
+      fetchDocUsers()
     } catch (err) {
       toast({ title: t('common.error'), description: t('verification.moderationFailed'), variant: 'error' })
     } finally {
