@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { adminApi, searchApi } from '@/lib/api'
@@ -30,7 +30,7 @@ const extractResults = (payload: unknown): SearchResultUser[] => {
     return []
   }
 
-  for (const key of ['users', 'results', 'items', 'profiles', 'data']) {
+  for (const key of ['users', 'results', 'items', 'profiles', 'records', 'rows', 'matches', 'data']) {
     const candidate = payload[key]
     if (Array.isArray(candidate)) {
       return candidate.filter(isRecord)
@@ -46,7 +46,38 @@ const extractResults = (payload: unknown): SearchResultUser[] => {
   return []
 }
 
-const extractTotal = (payload: unknown, fallback: number) => {
+const normalizeSearchUser = (value: SearchResultUser, index: number): SearchResultUser => {
+  const nestedUser = isRecord(value.user) ? value.user : undefined
+  const nestedProfile = isRecord(value.profile)
+    ? value.profile
+    : nestedUser && isRecord(nestedUser.profile)
+      ? nestedUser.profile
+      : undefined
+
+  const source = nestedUser || value
+  const fullName = typeof source.name === 'string'
+    ? source.name.trim()
+    : typeof value.name === 'string'
+      ? value.name.trim()
+      : ''
+  const [derivedFirstName = '', ...derivedLastName] = fullName ? fullName.split(/\s+/) : []
+
+  return {
+    ...value,
+    ...source,
+    id: source.id || value.id || source.userId || value.userId || `search-user-${index}`,
+    firstName: source.firstName || value.firstName || derivedFirstName,
+    lastName: source.lastName || value.lastName || derivedLastName.join(' '),
+    email: source.email || value.email || '',
+    status: source.status || value.status || 'unknown',
+    role: source.role || value.role,
+    selfieVerified: Boolean(source.selfieVerified ?? value.selfieVerified ?? source.verified ?? value.verified),
+    city: source.city || value.city || nestedProfile?.city,
+    profile: nestedProfile || source.profile || value.profile,
+  }
+}
+
+const extractTotal = (payload: unknown, fallback: number): number => {
   if (!isRecord(payload)) {
     return fallback
   }
@@ -77,11 +108,11 @@ export default function SearchUsersPage() {
   const [results, setResults] = useState<any[]>([])
   const [loading, setLoading] = useState(false)
   const [total, setTotal] = useState(0)
+  const requestIdRef = useRef(0)
 
   // Search query (from header search bar or manual input)
   const urlQuery = (searchParams.get('q') || '').trim()
   const [searchQuery, setSearchQuery] = useState(urlQuery)
-  const [submittedQuery, setSubmittedQuery] = useState(urlQuery)
 
   // Filters
   const [statusFilter, setStatusFilter] = useState<string>('all')
@@ -91,31 +122,41 @@ export default function SearchUsersPage() {
   // Sync with header search bar query (?q=...)
   useEffect(() => {
     setSearchQuery(urlQuery)
-    setSubmittedQuery(urlQuery)
     setPage(1)
   }, [urlQuery])
 
-  // Perform search when submitted query, filters, or page changes
   useEffect(() => {
-    performSearch(submittedQuery, statusFilter, roleFilter)
-  }, [submittedQuery, page, statusFilter, roleFilter])
+    const nextQuery = searchQuery.trim()
+    if (nextQuery === urlQuery) {
+      return
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      const nextSearchUrl = nextQuery ? `/search?q=${encodeURIComponent(nextQuery)}` : '/search'
+      setPage(1)
+      navigate(nextSearchUrl, { replace: true })
+    }, 350)
+
+    return () => window.clearTimeout(timeoutId)
+  }, [searchQuery, urlQuery, navigate])
+
+  // Perform search when query from URL, filters, or page changes
+  useEffect(() => {
+    performSearch(urlQuery, statusFilter, roleFilter)
+  }, [urlQuery, page, statusFilter, roleFilter])
 
   const handleSearch = () => {
     const nextQuery = searchQuery.trim()
     const nextSearchUrl = nextQuery ? `/search?q=${encodeURIComponent(nextQuery)}` : '/search'
 
     // If nothing changed, still allow explicit retry while on same page.
-    if (nextQuery === submittedQuery && page === 1) {
+    if (nextQuery === urlQuery && page === 1) {
       performSearch(nextQuery, statusFilter, roleFilter)
       return
     }
 
-    if (nextQuery !== urlQuery) {
-      navigate(nextSearchUrl)
-    }
-
-    setSubmittedQuery(nextQuery)
     setPage(1)
+    navigate(nextSearchUrl, { replace: nextQuery === urlQuery })
   }
 
   const handleStatusFilterChange = (value: string) => {
@@ -129,6 +170,7 @@ export default function SearchUsersPage() {
   }
 
   const performSearch = async (query?: string, status?: string, role?: string) => {
+    const requestId = ++requestIdRef.current
     setLoading(true)
     try {
       const trimmedQuery = query?.trim()
@@ -156,8 +198,12 @@ export default function SearchUsersPage() {
           })
           payload = data
 
-          const searchResults = extractResults(payload)
+          const searchResults = extractResults(payload).map(normalizeSearchUser)
           const searchTotal = extractTotal(payload, searchResults.length)
+
+          if (requestId !== requestIdRef.current) {
+            return
+          }
 
           if (searchResults.length > 0 || searchTotal > 0) {
             setResults(searchResults)
@@ -171,15 +217,22 @@ export default function SearchUsersPage() {
 
       const { data } = await userListRequest()
       payload = data
-      const list = extractResults(payload)
+      const list = extractResults(payload).map(normalizeSearchUser)
+      if (requestId !== requestIdRef.current) {
+        return
+      }
       setResults(list)
       setTotal(extractTotal(payload, list.length))
     } catch (err) {
       console.error(err)
-      setResults([])
-      setTotal(0)
+      if (requestId === requestIdRef.current) {
+        setResults([])
+        setTotal(0)
+      }
     } finally {
-      setLoading(false)
+      if (requestId === requestIdRef.current) {
+        setLoading(false)
+      }
     }
   }
 

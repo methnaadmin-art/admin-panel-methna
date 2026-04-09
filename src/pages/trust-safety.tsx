@@ -25,7 +25,123 @@ import type { ContentFlag } from '@/types'
 import { formatDateTime } from '@/lib/utils'
 import { ChevronLeft, ChevronRight, Loader2, Shield, AlertTriangle, CheckCircle, Search } from 'lucide-react'
 
+type TrustSafetyRecord = Record<string, any>
+
+const isRecord = (value: unknown): value is TrustSafetyRecord =>
+  typeof value === 'object' && value !== null
+
+const extractCollection = (payload: unknown): TrustSafetyRecord[] => {
+  if (Array.isArray(payload)) {
+    return payload.filter(isRecord)
+  }
+
+  if (!isRecord(payload)) {
+    return []
+  }
+
+  for (const key of ['flags', 'contentFlags', 'results', 'items', 'rows', 'records', 'data']) {
+    const candidate = payload[key]
+    if (Array.isArray(candidate)) {
+      return candidate.filter(isRecord)
+    }
+    if (isRecord(candidate)) {
+      const nested = extractCollection(candidate)
+      if (nested.length > 0) {
+        return nested
+      }
+    }
+  }
+
+  return []
+}
+
+const extractTotal = (payload: unknown, fallback: number): number => {
+  if (!isRecord(payload)) {
+    return fallback
+  }
+
+  for (const candidate of [
+    payload.total,
+    payload.totalCount,
+    payload.count,
+    isRecord(payload.meta) ? payload.meta.total : undefined,
+    isRecord(payload.pagination) ? payload.pagination.total : undefined,
+  ]) {
+    if (typeof candidate === 'number' && Number.isFinite(candidate)) {
+      return candidate
+    }
+  }
+
+  return isRecord(payload.data) ? extractTotal(payload.data, fallback) : fallback
+}
+
+const normalizeFlag = (value: TrustSafetyRecord, index: number): ContentFlag => {
+  const nestedUser = isRecord(value.user)
+    ? value.user
+    : isRecord(value.reportedUser)
+      ? value.reportedUser
+      : undefined
+  const type = String(value.type || value.flagType || value.category || value.reason || 'UNKNOWN').toUpperCase()
+  const source = String(value.source || value.origin || value.flagSource || 'USER_REPORT').toUpperCase()
+  const entityType = String(value.entityType || value.targetType || value.resourceType || value.entity || 'USER').toUpperCase()
+  const confidenceCandidate = value.confidenceScore ?? value.confidence ?? value.score
+
+  return {
+    ...value,
+    id: String(value.id || value._id || `flag-${index}`),
+    userId: String(value.userId || nestedUser?.id || value.reportedUserId || ''),
+    type,
+    status: String(value.status || 'PENDING').toUpperCase() as ContentFlag['status'],
+    source,
+    content: typeof value.content === 'string'
+      ? value.content
+      : typeof value.message === 'string'
+        ? value.message
+        : typeof value.description === 'string'
+          ? value.description
+          : typeof value.reasonText === 'string'
+            ? value.reasonText
+            : undefined,
+    entityType,
+    entityId: String(value.entityId || value.targetId || value.resourceId || value.userId || nestedUser?.id || ''),
+    confidenceScore: typeof confidenceCandidate === 'number' ? confidenceCandidate : undefined,
+    reviewNote: typeof value.reviewNote === 'string' ? value.reviewNote : undefined,
+    createdAt: String(value.createdAt || value.flaggedAt || value.updatedAt || new Date().toISOString()),
+    user: nestedUser as ContentFlag['user'],
+  }
+}
+
+const normalizeDetectionResult = (payload: unknown) => {
+  const base = isRecord(payload)
+    ? isRecord(payload.data)
+      ? payload.data
+      : isRecord(payload.result)
+        ? payload.result
+        : isRecord(payload.analysis)
+          ? payload.analysis
+          : payload
+    : {}
+
+  const reasonsSource = base.reasons ?? base.signals ?? base.flags ?? base.indicators
+  const reasons = Array.isArray(reasonsSource)
+    ? reasonsSource.map((reason) => String(reason)).filter(Boolean)
+    : typeof reasonsSource === 'string' && reasonsSource.trim()
+      ? [reasonsSource.trim()]
+      : []
+
+  const suspiciousValue = base.isSuspicious ?? base.suspicious ?? base.flagged ?? base.requiresReview
+  const trustScore = base.trustScore ?? base.score ?? base.riskScore
+
+  return {
+    ...base,
+    isSuspicious: Boolean(suspiciousValue),
+    reasons,
+    trustScore: typeof trustScore === 'number' ? trustScore : undefined,
+  }
+}
+
 const flagTypeBadge = (type: string) => {
+  const normalizedType = String(type || '').toUpperCase()
   const map: Record<string, { variant: any; label: string }> = {
     BAD_WORD: { variant: 'warning', label: 'Bad Word' },
     OFFENSIVE: { variant: 'destructive', label: 'Offensive' },
@@ -35,12 +151,12 @@ const flagTypeBadge = (type: string) => {
     HARASSMENT: { variant: 'destructive', label: 'Harassment' },
     SCAM: { variant: 'destructive', label: 'Scam' },
   }
-  const info = map[type] || { variant: 'secondary', label: type }
+  const info = map[normalizedType] || { variant: 'secondary', label: normalizedType || 'UNKNOWN' }
   return <Badge variant={info.variant}>{info.label}</Badge>
 }
 
 const sourceBadge = (source: string) => {
-  switch (source) {
+  switch (String(source || '').toUpperCase()) {
     case 'AUTO_DETECTED': return <Badge variant="info">Auto</Badge>
     case 'USER_REPORT': return <Badge variant="secondary">User Report</Badge>
     case 'ADMIN_FLAG': return <Badge variant="outline">Admin</Badge>
@@ -71,10 +187,13 @@ export default function TrustSafetyPage() {
     setLoading(true)
     try {
       const { data } = await trustSafetyApi.getFlags(page, 20)
-      setFlags(data.flags || data || [])
-      setTotal(data.total || 0)
+      const normalizedFlags = extractCollection(data).map(normalizeFlag)
+      setFlags(normalizedFlags)
+      setTotal(extractTotal(data, normalizedFlags.length))
     } catch (err) {
       console.error(err)
+      setFlags([])
+      setTotal(0)
     } finally {
       setLoading(false)
     }
@@ -100,7 +219,7 @@ export default function TrustSafetyPage() {
     setDetectResult(null)
     try {
       const { data } = await trustSafetyApi.detectSuspicious(detectUserId.trim())
-      setDetectResult(data)
+      setDetectResult(normalizeDetectionResult(data))
     } catch (err: any) {
       setDetectResult({ error: err.response?.data?.message || 'Detection failed' })
     } finally {

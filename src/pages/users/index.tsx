@@ -36,6 +36,56 @@ import {
   UserPlus,
 } from 'lucide-react'
 
+type UserRecord = Record<string, any>
+
+const isRecord = (value: unknown): value is UserRecord =>
+  typeof value === 'object' && value !== null
+
+const extractUsers = (payload: unknown): UserRecord[] => {
+  if (Array.isArray(payload)) {
+    return payload.filter(isRecord)
+  }
+
+  if (!isRecord(payload)) {
+    return []
+  }
+
+  for (const key of ['users', 'results', 'items', 'records', 'rows', 'data']) {
+    const candidate = payload[key]
+    if (Array.isArray(candidate)) {
+      return candidate.filter(isRecord)
+    }
+    if (isRecord(candidate)) {
+      const nestedUsers = extractUsers(candidate)
+      if (nestedUsers.length > 0) {
+        return nestedUsers
+      }
+    }
+  }
+
+  return []
+}
+
+const extractTotal = (payload: unknown, fallback: number): number => {
+  if (!isRecord(payload)) {
+    return fallback
+  }
+
+  for (const candidate of [
+    payload.total,
+    payload.totalCount,
+    payload.count,
+    isRecord(payload.meta) ? payload.meta.total : undefined,
+    isRecord(payload.pagination) ? payload.pagination.total : undefined,
+  ]) {
+    if (typeof candidate === 'number' && Number.isFinite(candidate)) {
+      return candidate
+    }
+  }
+
+  return isRecord(payload.data) ? extractTotal(payload.data, fallback) : fallback
+}
+
 const statusBadge = (status: string, t: (k: string) => string) => {
   switch (status) {
     case 'active': return <Badge variant="success">{t('users.active')}</Badge>
@@ -82,8 +132,8 @@ export default function UsersPage() {
       const plan = planFilter === 'all' ? undefined : planFilter
       const res = await adminApi.getUsers(page, limit, status, search || undefined, role, plan)
       const payload = res.data
-      const userList = Array.isArray(payload) ? payload : (payload?.users || [])
-      const userTotal = Array.isArray(payload) ? payload.length : (payload?.total || userList.length)
+      const userList = extractUsers(payload) as User[]
+      const userTotal = extractTotal(payload, userList.length)
       setUsers(userList)
       setTotal(userTotal)
     } catch (err) {
@@ -94,6 +144,20 @@ export default function UsersPage() {
   }
 
   useEffect(() => { fetchUsers() }, [page, statusFilter, roleFilter, planFilter, search])
+
+  useEffect(() => {
+    const nextSearch = searchInput.trim()
+    if (nextSearch === search) {
+      return
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setPage(1)
+      setSearch(nextSearch)
+    }, 350)
+
+    return () => window.clearTimeout(timeoutId)
+  }, [searchInput, search])
 
   const handleStatusChange = async () => {
     if (!statusDialog.user) return
@@ -132,7 +196,7 @@ export default function UsersPage() {
   }
 
   const handleSearchSubmit = () => {
-    setSearch(searchInput)
+    setSearch(searchInput.trim())
     setPage(1)
   }
 

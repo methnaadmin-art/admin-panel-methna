@@ -104,6 +104,16 @@ const tryApiRequests = async <T>(requests: Array<() => Promise<T>>) => {
   throw lastError
 }
 
+const getSearchText = (params: Record<string, any>) => {
+  for (const candidate of [params.search, params.q, params.query, params.term, params.keyword]) {
+    if (typeof candidate === 'string' && candidate.trim().length > 0) {
+      return candidate.trim()
+    }
+  }
+
+  return undefined
+}
+
 export default api
 
 // ── Auth ─────────────────────────────────────────────────────
@@ -338,15 +348,46 @@ export const analyticsApi = {
 
 export const trustSafetyApi = {
   getFlags: (page = 1, limit = 20) =>
-    api.get('/trust-safety/admin/flags', { params: { page, limit } }),
+    tryApiRequests([
+      () => api.get('/trust-safety/admin/flags', { params: { page, limit } }),
+      () => api.get('/admin/trust-safety/flags', { params: { page, limit } }),
+      () => api.get('/admin/content-flags', { params: { page, limit } }),
+      () => api.get('/trust-safety/flags', { params: { page, limit } }),
+    ]),
   resolveFlag: (id: string, status: string, note?: string) =>
-    api.patch(`/trust-safety/admin/flags/${id}`, { status, note }),
+    tryApiRequests([
+      () => api.patch(`/trust-safety/admin/flags/${id}`, { status, note }),
+      () => api.patch(`/trust-safety/admin/flags/${id}/resolve`, { status, note }),
+      () => api.patch(`/admin/trust-safety/flags/${id}`, { status, note }),
+      () => api.patch(`/admin/content-flags/${id}`, { status, note }),
+      () => api.put(`/admin/content-flags/${id}`, { status, note }),
+    ]),
   shadowBan: (userId: string) =>
-    api.post(`/trust-safety/admin/shadow-ban/${userId}`),
+    tryApiRequests([
+      () => api.post(`/trust-safety/admin/shadow-ban/${userId}`),
+      () => api.post(`/trust-safety/admin/users/${userId}/shadow-ban`),
+      () => api.post(`/admin/users/${userId}/shadow-ban`),
+      () => api.patch(`/admin/users/${userId}`, { isShadowBanned: true }),
+      () => api.put(`/admin/users/${userId}`, { isShadowBanned: true }),
+    ]),
   removeShadowBan: (userId: string) =>
-    api.post(`/trust-safety/admin/remove-shadow-ban/${userId}`),
+    tryApiRequests([
+      () => api.post(`/trust-safety/admin/remove-shadow-ban/${userId}`),
+      () => api.post(`/trust-safety/admin/users/${userId}/remove-shadow-ban`),
+      () => api.post(`/admin/users/${userId}/remove-shadow-ban`),
+      () => api.patch(`/admin/users/${userId}`, { isShadowBanned: false }),
+      () => api.put(`/admin/users/${userId}`, { isShadowBanned: false }),
+    ]),
   detectSuspicious: (userId: string) =>
-    api.post(`/trust-safety/admin/detect-suspicious/${userId}`),
+    tryApiRequests([
+      () => api.post(`/trust-safety/admin/detect-suspicious/${userId}`),
+      () => api.get(`/trust-safety/admin/detect-suspicious/${userId}`),
+      () => api.post(`/trust-safety/admin/users/${userId}/detect-suspicious`),
+      () => api.get(`/trust-safety/admin/users/${userId}/detect-suspicious`),
+      () => api.post(`/admin/users/${userId}/detect-suspicious`),
+      () => api.get(`/admin/users/${userId}/detect-suspicious`),
+      () => api.post(`/admin/trust-safety/detect-suspicious/${userId}`),
+    ]),
 }
 
 // ── Security ─────────────────────────────────────────────────
@@ -415,8 +456,19 @@ export const notificationsApi = {
 // ── Search ──────────────────────────────────────────────────
 
 export const searchApi = {
-  search: (params: Record<string, any>) =>
-    api.get('/search', { params }),
+  search: (params: Record<string, any>) => {
+    const searchText = getSearchText(params)
+    const adminUserParams = searchText
+      ? { ...params, search: searchText }
+      : params
+
+    return tryApiRequests([
+      () => api.get('/search', { params }),
+      () => api.get('/admin/search', { params }),
+      () => api.get('/admin/users/search', { params }),
+      () => api.get('/admin/users', { params: adminUserParams }),
+    ])
+  },
 }
 
 // ── Matches ─────────────────────────────────────────────────

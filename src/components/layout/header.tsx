@@ -27,7 +27,7 @@ import {
   Sun,
   Languages,
 } from 'lucide-react'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { adminApi } from '@/lib/api'
 
 const breadcrumbMap: Record<string, string[]> = {
@@ -62,6 +62,7 @@ export function Header() {
   const [searchQuery, setSearchQuery] = useState('')
   const [pendingCount, setPendingCount] = useState(0)
   const isRtl = i18n.language === 'ar'
+  const searchTimeoutRef = useRef<number | null>(null)
 
   const match = Object.entries(breadcrumbMap).find(
     ([path]) => location.pathname === path || (path !== '/' && location.pathname.startsWith(path))
@@ -88,8 +89,42 @@ export function Header() {
     setSearchQuery(currentQuery)
   }, [location.pathname, location.search])
 
+  useEffect(() => () => {
+    if (searchTimeoutRef.current) {
+      window.clearTimeout(searchTimeoutRef.current)
+    }
+  }, [])
+
+  const queueSearchNavigation = (value: string) => {
+    if (searchTimeoutRef.current) {
+      window.clearTimeout(searchTimeoutRef.current)
+    }
+
+    searchTimeoutRef.current = window.setTimeout(() => {
+      const query = value.trim()
+      const currentQuery = new URLSearchParams(location.search).get('q') || ''
+      const isSearchPage = location.pathname.startsWith('/search')
+
+      if (!query) {
+        if (isSearchPage && currentQuery) {
+          navigate('/search', { replace: true })
+        }
+        return
+      }
+
+      if (isSearchPage && query === currentQuery.trim()) {
+        return
+      }
+
+      navigate(`/search?q=${encodeURIComponent(query)}`, { replace: isSearchPage })
+    }, 350)
+  }
+
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault()
+    if (searchTimeoutRef.current) {
+      window.clearTimeout(searchTimeoutRef.current)
+    }
     const query = searchQuery.trim()
     navigate(query ? `/search?q=${encodeURIComponent(query)}` : '/search')
   }
@@ -122,7 +157,11 @@ export function Header() {
         <Input
           placeholder={t('header.searchPlaceholder')}
           value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
+          onChange={(e) => {
+            const nextValue = e.target.value
+            setSearchQuery(nextValue)
+            queueSearchNavigation(nextValue)
+          }}
           className={`${isRtl ? 'pr-9' : 'pl-9'} h-9 bg-muted/50 border-0 focus-visible:ring-1`}
         />
       </form>
