@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { trustSafetyApi } from '@/lib/api'
+import { adminApi, trustSafetyApi } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -21,9 +21,19 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import { useToast } from '@/components/ui/toast'
 import type { ContentFlag } from '@/types'
 import { formatDateTime } from '@/lib/utils'
-import { ChevronLeft, ChevronRight, Loader2, Shield, AlertTriangle, CheckCircle, Search } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Loader2, Shield, AlertTriangle, CheckCircle, Search, Eye, ExternalLink } from 'lucide-react'
+
+type DisplayFlag = ContentFlag & {
+  previewUrl?: string
+  documentUrl?: string
+  selfieUrl?: string
+  userName?: string
+  userEmail?: string
+  flaggedAt?: string
+}
 
 type TrustSafetyRecord = Record<string, any>
 
@@ -75,12 +85,56 @@ const extractTotal = (payload: unknown, fallback: number): number => {
   return isRecord(payload.data) ? extractTotal(payload.data, fallback) : fallback
 }
 
-const normalizeFlag = (value: TrustSafetyRecord, index: number): ContentFlag => {
+const firstString = (...values: unknown[]) => {
+  for (const value of values) {
+    if (typeof value === 'string' && value.trim().length > 0) {
+      return value
+    }
+  }
+
+  return ''
+}
+
+const prefersDocumentAsset = (flag: Pick<DisplayFlag, 'type' | 'entityType' | 'content'>) => {
+  const assetHint = `${flag.type || ''} ${flag.entityType || ''} ${flag.content || ''}`.toLowerCase()
+  return /document|id\b|passport|certificate|marital|marriage|verification/.test(assetHint)
+}
+
+const normalizeFlag = (value: TrustSafetyRecord, index: number): DisplayFlag => {
   const nestedUser = isRecord(value.user)
     ? value.user
     : isRecord(value.reportedUser)
       ? value.reportedUser
       : undefined
+  const verification = isRecord(value.verification) ? value.verification : undefined
+  const document = isRecord(value.document) ? value.document : undefined
+  const selfie = isRecord(value.selfie) ? value.selfie : undefined
+  const media = isRecord(value.media) ? value.media : undefined
+  const previewUrl = firstString(
+    value.previewUrl,
+    value.imageUrl,
+    value.photoUrl,
+    value.mediaUrl,
+    media?.url,
+    value.contentUrl,
+  )
+  const documentUrl = firstString(
+    value.documentUrl,
+    value.identityDocumentUrl,
+    value.idDocumentUrl,
+    value.maritalDocumentUrl,
+    value.martialDocumentUrl,
+    value.marriageDocumentUrl,
+    document?.url,
+    verification?.documentUrl,
+    nestedUser?.documentUrl,
+  )
+  const selfieUrl = firstString(
+    value.selfieUrl,
+    selfie?.url,
+    verification?.selfieUrl,
+    nestedUser?.selfieUrl,
+  )
   const type = String(value.type || value.flagType || value.category || value.reason || 'UNKNOWN').toUpperCase()
   const source = String(value.source || value.origin || value.flagSource || 'USER_REPORT').toUpperCase()
   const entityType = String(value.entityType || value.targetType || value.resourceType || value.entity || 'USER').toUpperCase()
@@ -108,6 +162,16 @@ const normalizeFlag = (value: TrustSafetyRecord, index: number): ContentFlag => 
     reviewNote: typeof value.reviewNote === 'string' ? value.reviewNote : undefined,
     createdAt: String(value.createdAt || value.flaggedAt || value.updatedAt || new Date().toISOString()),
     user: nestedUser as ContentFlag['user'],
+    previewUrl,
+    documentUrl,
+    selfieUrl,
+    userName: firstString(
+      value.userName,
+      nestedUser?.name,
+      `${nestedUser?.firstName || ''} ${nestedUser?.lastName || ''}`.trim(),
+    ),
+    userEmail: firstString(value.userEmail, nestedUser?.email),
+    flaggedAt: firstString(value.flaggedAt, value.createdAt, value.updatedAt),
   }
 }
 
@@ -166,13 +230,22 @@ const sourceBadge = (source: string) => {
 
 export default function TrustSafetyPage() {
   const { t } = useTranslation()
-  const [flags, setFlags] = useState<ContentFlag[]>([])
+  const { toast } = useToast()
+  const [flags, setFlags] = useState<DisplayFlag[]>([])
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(1)
   const [loading, setLoading] = useState(true)
+  const [resolveLoading, setResolveLoading] = useState(false)
+  const [previewImg, setPreviewImg] = useState<string | null>(null)
+  const [flagAssets, setFlagAssets] = useState<{ loading: boolean; previewUrl: string; selfieUrl: string; documentUrl: string }>({
+    loading: false,
+    previewUrl: '',
+    selfieUrl: '',
+    documentUrl: '',
+  })
 
   // Resolve dialog
-  const [resolveDialog, setResolveDialog] = useState<{ open: boolean; flag: ContentFlag | null }>({
+  const [resolveDialog, setResolveDialog] = useState<{ open: boolean; flag: DisplayFlag | null }>({
     open: false, flag: null,
   })
   const [resolveStatus, setResolveStatus] = useState('ACTION_TAKEN')
@@ -201,15 +274,83 @@ export default function TrustSafetyPage() {
 
   useEffect(() => { fetchFlags() }, [page])
 
+  const loadFlagAssets = async (flag: DisplayFlag) => {
+    const initialAssets = {
+      previewUrl: flag.previewUrl || '',
+      selfieUrl: flag.selfieUrl || '',
+      documentUrl: flag.documentUrl || '',
+    }
+
+    const targetUserId = firstString(flag.userId, flag.entityType === 'USER' ? flag.entityId : '')
+    if (!targetUserId || (initialAssets.previewUrl && (initialAssets.selfieUrl || initialAssets.documentUrl))) {
+      setFlagAssets({ loading: false, ...initialAssets })
+      return
+    }
+
+    setFlagAssets({ loading: true, ...initialAssets })
+    try {
+      const { data } = await adminApi.getUserDetail(targetUserId)
+      const detailPayload = isRecord(data?.user) ? data : isRecord(data?.data) ? data.data : data
+      const nestedUser = isRecord(detailPayload?.user) ? detailPayload.user : isRecord(detailPayload) ? detailPayload : null
+      const verification = isRecord(detailPayload?.verification) ? detailPayload.verification : null
+      const photos = Array.isArray(detailPayload?.photos) ? detailPayload.photos.filter(isRecord) : []
+      const selfiePhoto = photos.find((photo: TrustSafetyRecord) => photo.isSelfieVerification)
+      const flaggedPhoto = photos.find((photo: TrustSafetyRecord) => firstString(photo.id) === firstString(flag.entityId))
+
+      setFlagAssets({
+        loading: false,
+        previewUrl: initialAssets.previewUrl || firstString(flaggedPhoto?.url, nestedUser?.photoUrl),
+        selfieUrl: initialAssets.selfieUrl || firstString(
+          nestedUser?.selfieUrl,
+          verification?.selfieUrl,
+          selfiePhoto?.url,
+        ),
+        documentUrl: initialAssets.documentUrl || firstString(
+          nestedUser?.documentUrl,
+          nestedUser?.identityDocumentUrl,
+          nestedUser?.idDocumentUrl,
+          nestedUser?.maritalDocumentUrl,
+          nestedUser?.martialDocumentUrl,
+          nestedUser?.marriageDocumentUrl,
+          verification?.documentUrl,
+        ),
+      })
+    } catch (error) {
+      console.error('Failed to hydrate trust-safety assets', error)
+      setFlagAssets({ loading: false, ...initialAssets })
+    }
+  }
+
+  const openResolveDialog = (flag: DisplayFlag) => {
+    setResolveStatus('ACTION_TAKEN')
+    setReviewNote('')
+    setResolveDialog({ open: true, flag })
+    void loadFlagAssets(flag)
+  }
+
   const handleResolve = async () => {
     if (!resolveDialog.flag) return
+    setResolveLoading(true)
     try {
       await trustSafetyApi.resolveFlag(resolveDialog.flag.id, resolveStatus, reviewNote || undefined)
       setResolveDialog({ open: false, flag: null })
       setReviewNote('')
-      fetchFlags()
+      setFlagAssets({ loading: false, previewUrl: '', selfieUrl: '', documentUrl: '' })
+      toast({
+        title: t('trustSafety.resolve'),
+        description: `${resolveDialog.flag.type} marked as ${resolveStatus.toLowerCase().replace(/_/g, ' ')}`,
+        variant: resolveStatus === 'DISMISSED' ? 'warning' : 'success',
+      })
+      await fetchFlags()
     } catch (err) {
       console.error(err)
+      toast({
+        title: t('common.error'),
+        description: 'Failed to resolve trust and safety flag',
+        variant: 'error',
+      })
+    } finally {
+      setResolveLoading(false)
     }
   }
 
@@ -338,10 +479,7 @@ export default function TrustSafetyPage() {
                           size="sm"
                           variant="outline"
                           className="gap-1"
-                          onClick={() => {
-                            setResolveDialog({ open: true, flag })
-                            setResolveStatus('ACTION_TAKEN')
-                          }}
+                          onClick={() => openResolveDialog(flag)}
                         >
                           <CheckCircle className="h-3.5 w-3.5" /> {t('trustSafety.resolve')}
                         </Button>
@@ -373,7 +511,12 @@ export default function TrustSafetyPage() {
       </Card>
 
       {/* Resolve Dialog */}
-      <Dialog open={resolveDialog.open} onOpenChange={(open) => setResolveDialog({ ...resolveDialog, open })}>
+      <Dialog open={resolveDialog.open} onOpenChange={(open) => {
+        setResolveDialog({ ...resolveDialog, open })
+        if (!open) {
+          setFlagAssets({ loading: false, previewUrl: '', selfieUrl: '', documentUrl: '' })
+        }
+      }}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>{t('trustSafety.resolveFlag')}</DialogTitle>
@@ -386,6 +529,47 @@ export default function TrustSafetyPage() {
               <p className="text-xs font-medium text-muted-foreground mb-1">Flagged content:</p>
               {resolveDialog.flag.content}
             </div>
+          )}
+          {flagAssets.loading ? (
+            <div className="flex items-center justify-center rounded-lg border p-6">
+              <Loader2 className="h-5 w-5 animate-spin text-primary" />
+            </div>
+          ) : (
+            (flagAssets.previewUrl || flagAssets.selfieUrl || flagAssets.documentUrl) && (
+              <div className="grid gap-3 sm:grid-cols-2">
+                {[
+                  { label: 'Flagged Asset', url: flagAssets.previewUrl },
+                  { label: 'Selfie', url: flagAssets.selfieUrl },
+                  { label: prefersDocumentAsset(resolveDialog.flag || { type: '', entityType: '', content: '' }) ? 'Document' : 'Related Document', url: flagAssets.documentUrl },
+                ]
+                  .filter((asset) => asset.url)
+                  .map((asset) => (
+                    <button
+                      key={`${asset.label}-${asset.url}`}
+                      type="button"
+                      className="overflow-hidden rounded-lg border text-left hover:bg-muted/40"
+                      onClick={() => setPreviewImg(asset.url)}
+                    >
+                      <img src={asset.url} alt={asset.label} className="h-40 w-full object-cover" />
+                      <div className="flex items-center justify-between p-3 text-sm">
+                        <span className="font-medium">{asset.label}</span>
+                        <Eye className="h-4 w-4 text-muted-foreground" />
+                      </div>
+                    </button>
+                  ))}
+              </div>
+            )
+          )}
+          {resolveDialog.flag?.userId && (
+            <Button
+              type="button"
+              variant="outline"
+              className="gap-2"
+              onClick={() => window.open(`/users/${resolveDialog.flag?.userId}`, '_blank')}
+            >
+              <ExternalLink className="h-4 w-4" />
+              Open user profile
+            </Button>
           )}
           <Select value={resolveStatus} onValueChange={setResolveStatus}>
             <SelectTrigger>
@@ -404,8 +588,22 @@ export default function TrustSafetyPage() {
           />
           <DialogFooter>
             <Button variant="outline" onClick={() => setResolveDialog({ open: false, flag: null })}>{t('common.cancel')}</Button>
-            <Button onClick={handleResolve}>{t('common.submit')}</Button>
+            <Button onClick={handleResolve} disabled={resolveLoading}>
+              {resolveLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+              {t('common.submit')}
+            </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!previewImg} onOpenChange={() => setPreviewImg(null)}>
+        <DialogContent className="max-w-3xl p-2">
+          <DialogHeader className="sr-only">
+            <DialogTitle>Flag asset preview</DialogTitle>
+          </DialogHeader>
+          {previewImg ? (
+            <img src={previewImg} alt="Flag asset preview" className="max-h-[80vh] w-full rounded-lg object-contain" />
+          ) : null}
         </DialogContent>
       </Dialog>
     </div>

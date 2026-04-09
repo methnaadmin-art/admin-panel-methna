@@ -77,6 +77,35 @@ const normalizeSearchUser = (value: SearchResultUser, index: number): SearchResu
   }
 }
 
+const normalizeSearchText = (value: unknown) =>
+  typeof value === 'string' ? value.trim().toLowerCase() : ''
+
+const uniqueUsersById = (items: SearchResultUser[]) =>
+  Array.from(new Map(items.map((item) => [String(item.id || ''), item])).values()).filter((item) => item.id)
+
+const userMatchesQuery = (user: SearchResultUser, query: string) => {
+  const normalizedQuery = normalizeSearchText(query)
+  if (!normalizedQuery) {
+    return true
+  }
+
+  const fields = [
+    user.firstName,
+    user.lastName,
+    `${user.firstName || ''} ${user.lastName || ''}`.trim(),
+    user.name,
+    user.email,
+    user.username,
+    user.phone,
+    user.city,
+    user.profile?.city,
+    user.profile?.country,
+    user.id,
+  ]
+
+  return fields.some((field) => normalizeSearchText(field).includes(normalizedQuery))
+}
+
 const extractTotal = (payload: unknown, fallback: number): number => {
   if (!isRecord(payload)) {
     return fallback
@@ -169,6 +198,37 @@ export default function SearchUsersPage() {
     setPage(1)
   }
 
+  const fetchFallbackMatches = async (query: string, status?: string, role?: string) => {
+    const settledResponses = await Promise.allSettled(
+      Array.from({ length: 5 }, (_, index) =>
+        adminApi.getUsers(
+          index + 1,
+          100,
+          status !== 'all' ? status : undefined,
+          undefined,
+          role !== 'all' ? role : undefined,
+        )
+      )
+    )
+
+    const fallbackPool = uniqueUsersById(
+      settledResponses.flatMap((result) => {
+        if (result.status !== 'fulfilled') {
+          return []
+        }
+
+        return extractResults(result.value.data).map(normalizeSearchUser)
+      })
+    )
+
+    const filteredPool = fallbackPool.filter((user) => userMatchesQuery(user, query))
+    const start = (page - 1) * 20
+    return {
+      results: filteredPool.slice(start, start + 20),
+      total: filteredPool.length,
+    }
+  }
+
   const performSearch = async (query?: string, status?: string, role?: string) => {
     const requestId = ++requestIdRef.current
     setLoading(true)
@@ -199,14 +259,15 @@ export default function SearchUsersPage() {
           payload = data
 
           const searchResults = extractResults(payload).map(normalizeSearchUser)
-          const searchTotal = extractTotal(payload, searchResults.length)
+          const filteredSearchResults = searchResults.filter((user) => userMatchesQuery(user, trimmedQuery))
+          const searchTotal = extractTotal(payload, filteredSearchResults.length)
 
           if (requestId !== requestIdRef.current) {
             return
           }
 
-          if (searchResults.length > 0 || searchTotal > 0) {
-            setResults(searchResults)
+          if (filteredSearchResults.length > 0 && filteredSearchResults.length === searchResults.length) {
+            setResults(filteredSearchResults)
             setTotal(searchTotal)
             return
           }
@@ -221,8 +282,28 @@ export default function SearchUsersPage() {
       if (requestId !== requestIdRef.current) {
         return
       }
-      setResults(list)
-      setTotal(extractTotal(payload, list.length))
+
+      if (!trimmedQuery) {
+        setResults(list)
+        setTotal(extractTotal(payload, list.length))
+        return
+      }
+
+      const filteredList = list.filter((user) => userMatchesQuery(user, trimmedQuery))
+      const payloadTotal = extractTotal(payload, filteredList.length)
+      if (filteredList.length > 0 && filteredList.length === list.length) {
+        setResults(filteredList)
+        setTotal(payloadTotal)
+        return
+      }
+
+      const fallbackMatches = await fetchFallbackMatches(trimmedQuery, status, role)
+      if (requestId !== requestIdRef.current) {
+        return
+      }
+
+      setResults(fallbackMatches.results)
+      setTotal(fallbackMatches.total)
     } catch (err) {
       console.error(err)
       if (requestId === requestIdRef.current) {

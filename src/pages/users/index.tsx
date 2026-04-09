@@ -86,6 +86,35 @@ const extractTotal = (payload: unknown, fallback: number): number => {
   return isRecord(payload.data) ? extractTotal(payload.data, fallback) : fallback
 }
 
+const normalizeSearchText = (value: unknown) =>
+  typeof value === 'string' ? value.trim().toLowerCase() : ''
+
+const uniqueUsersById = (items: UserRecord[]) =>
+  Array.from(new Map(items.map((item) => [String(item.id || ''), item])).values()).filter((item) => item.id)
+
+const userMatchesQuery = (user: UserRecord, query: string) => {
+  const normalizedQuery = normalizeSearchText(query)
+  if (!normalizedQuery) {
+    return true
+  }
+
+  const fields = [
+    user.firstName,
+    user.lastName,
+    `${user.firstName || ''} ${user.lastName || ''}`.trim(),
+    user.name,
+    user.email,
+    user.username,
+    user.phone,
+    user.city,
+    user.profile?.city,
+    user.profile?.country,
+    user.id,
+  ]
+
+  return fields.some((field) => normalizeSearchText(field).includes(normalizedQuery))
+}
+
 const statusBadge = (status: string, t: (k: string) => string) => {
   switch (status) {
     case 'active': return <Badge variant="success">{t('users.active')}</Badge>
@@ -130,12 +159,49 @@ export default function UsersPage() {
       const status = statusFilter === 'all' ? undefined : statusFilter
       const role = roleFilter === 'all' ? undefined : roleFilter
       const plan = planFilter === 'all' ? undefined : planFilter
-      const res = await adminApi.getUsers(page, limit, status, search || undefined, role, plan)
+      const trimmedSearch = search.trim()
+
+      const applyPaginatedLocalResults = async () => {
+        const settledResponses = await Promise.allSettled(
+          Array.from({ length: 5 }, (_, index) =>
+            adminApi.getUsers(index + 1, 100, status, undefined, role, plan)
+          )
+        )
+
+        const fallbackPool = uniqueUsersById(
+          settledResponses.flatMap((result) => {
+            if (result.status !== 'fulfilled') {
+              return []
+            }
+
+            return extractUsers(result.value.data)
+          })
+        ) as User[]
+
+        const filteredPool = fallbackPool.filter((user) => userMatchesQuery(user, trimmedSearch))
+        const start = (page - 1) * limit
+        setUsers(filteredPool.slice(start, start + limit))
+        setTotal(filteredPool.length)
+      }
+
+      const res = await adminApi.getUsers(page, limit, status, trimmedSearch || undefined, role, plan)
       const payload = res.data
       const userList = extractUsers(payload) as User[]
-      const userTotal = extractTotal(payload, userList.length)
-      setUsers(userList)
-      setTotal(userTotal)
+
+      if (!trimmedSearch) {
+        setUsers(userList)
+        setTotal(extractTotal(payload, userList.length))
+        return
+      }
+
+      const filteredList = userList.filter((user) => userMatchesQuery(user, trimmedSearch))
+      if (filteredList.length > 0 && filteredList.length === userList.length) {
+        setUsers(filteredList)
+        setTotal(extractTotal(payload, filteredList.length))
+        return
+      }
+
+      await applyPaginatedLocalResults()
     } catch (err) {
       console.error('Failed to fetch users:', err)
     } finally {

@@ -528,7 +528,7 @@
     "religiousLevel": "Religious Level",
     "search": "Search",
     "results": "Results",
-    "noResults": "No results. Use the filters above and click Search."
+    "noResults": "No users matched the current search and filters."
   },
   "auditLogs": {
     "title": "Audit Logs",

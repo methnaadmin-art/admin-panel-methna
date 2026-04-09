@@ -134,7 +134,29 @@ export const adminApi = {
 
   // Users
   getUsers: (page = 1, limit = 20, status?: string, search?: string, role?: string, plan?: string) =>
-    api.get('/admin/users', { params: { page, limit, status, search, role, plan } }),
+    tryApiRequests([
+      () => api.get('/admin/users', {
+        params: { page, limit, status, search: search || undefined, role, plan },
+      }),
+      () => api.get('/admin/users', {
+        params: { page, limit, status, q: search || undefined, role, plan },
+      }),
+      () => api.get('/admin/users', {
+        params: { page, limit, status, query: search || undefined, role, plan },
+      }),
+      () => api.get('/admin/users', {
+        params: { page, limit, status, name: search || undefined, role, plan },
+      }),
+      () => api.get('/admin/users', {
+        params: { page, limit, status, email: search || undefined, role, plan },
+      }),
+      () => api.get('/admin/users/search', {
+        params: { page, limit, status, search: search || undefined, role, plan },
+      }),
+      () => api.get('/admin/search/users', {
+        params: { page, limit, status, search: search || undefined, role, plan },
+      }),
+    ]),
   createUser: (data: { email: string; password: string; firstName: string; lastName: string; role?: string; status?: string }) =>
     api.post('/admin/users', data),
   getUserDetail: (id: string) => api.get(`/admin/users/${id}`),
@@ -357,9 +379,17 @@ export const trustSafetyApi = {
   resolveFlag: (id: string, status: string, note?: string) =>
     tryApiRequests([
       () => api.patch(`/trust-safety/admin/flags/${id}`, { status, note }),
+      () => api.patch(`/trust-safety/admin/flags/${id}`, { status, reviewNote: note }),
+      () => api.patch(`/trust-safety/admin/flags/${id}`, { resolution: status, note }),
       () => api.patch(`/trust-safety/admin/flags/${id}/resolve`, { status, note }),
+      () => api.patch(`/trust-safety/admin/flags/${id}/resolve`, { status, reviewNote: note }),
+      () => api.post(`/trust-safety/admin/flags/${id}/resolve`, { status, note }),
       () => api.patch(`/admin/trust-safety/flags/${id}`, { status, note }),
       () => api.patch(`/admin/content-flags/${id}`, { status, note }),
+      () => api.patch(`/admin/content-flags/${id}`, { status, reviewNote: note }),
+      () => api.patch(`/admin/content-flags/${id}`, { resolution: status, moderatorNote: note }),
+      () => api.patch(`/admin/content-flags/${id}/resolve`, { status, reviewNote: note }),
+      () => api.post(`/admin/content-flags/${id}/resolve`, { status, reviewNote: note }),
       () => api.put(`/admin/content-flags/${id}`, { status, note }),
     ]),
   shadowBan: (userId: string) =>
