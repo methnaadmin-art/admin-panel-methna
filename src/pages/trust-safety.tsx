@@ -1,10 +1,13 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { adminApi, trustSafetyApi } from '@/lib/api'
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
+import { Progress } from '@/components/ui/progress'
+import { Separator } from '@/components/ui/separator'
 import { Textarea } from '@/components/ui/textarea'
 import {
   Select,
@@ -24,7 +27,22 @@ import {
 import { useToast } from '@/components/ui/toast'
 import type { ContentFlag } from '@/types'
 import { formatDateTime } from '@/lib/utils'
-import { ChevronLeft, ChevronRight, Loader2, Shield, AlertTriangle, CheckCircle, Search, Eye, ExternalLink } from 'lucide-react'
+import {
+  ChevronLeft,
+  ChevronRight,
+  Loader2,
+  Shield,
+  AlertTriangle,
+  CheckCircle,
+  Search,
+  Eye,
+  ExternalLink,
+  ImageIcon,
+  FileBadge2,
+  MessageSquareWarning,
+  Ban,
+  ShieldCheck,
+} from 'lucide-react'
 
 type DisplayFlag = ContentFlag & {
   previewUrl?: string
@@ -37,6 +55,11 @@ type DisplayFlag = ContentFlag & {
 
 type TrustSafetyRecord = Record<string, any>
 type ResolveStatus = 'action_taken' | 'reviewed' | 'dismissed'
+type EvidenceAsset = {
+  label: string
+  url: string
+  icon: typeof ImageIcon
+}
 
 const isRecord = (value: unknown): value is TrustSafetyRecord =>
   typeof value === 'object' && value !== null
@@ -244,6 +267,70 @@ const statusBadge = (status: string) => {
   }
 }
 
+const getConfidencePercent = (flag?: Pick<DisplayFlag, 'confidenceScore'> | null) =>
+  typeof flag?.confidenceScore === 'number'
+    ? Math.max(0, Math.min(100, Math.round(flag.confidenceScore * 100)))
+    : null
+
+const getRiskMeta = (flag?: Pick<DisplayFlag, 'confidenceScore'> | null) => {
+  const confidencePercent = getConfidencePercent(flag)
+
+  if (confidencePercent === null) {
+    return {
+      label: 'Unscored',
+      tone: 'text-muted-foreground',
+      badgeVariant: 'secondary' as const,
+    }
+  }
+
+  if (confidencePercent >= 85) {
+    return {
+      label: 'High Risk',
+      tone: 'text-red-600',
+      badgeVariant: 'destructive' as const,
+    }
+  }
+
+  if (confidencePercent >= 60) {
+    return {
+      label: 'Needs Review',
+      tone: 'text-amber-600',
+      badgeVariant: 'warning' as const,
+    }
+  }
+
+  return {
+    label: 'Low Risk',
+    tone: 'text-emerald-600',
+    badgeVariant: 'success' as const,
+  }
+}
+
+const getUserInitials = (flag?: Pick<DisplayFlag, 'userName' | 'userEmail'> | null) => {
+  const base = firstString(flag?.userName, flag?.userEmail, 'User')
+  const parts = base.split(/\s+/).filter(Boolean)
+
+  if (parts.length === 1) {
+    return parts[0].slice(0, 2).toUpperCase()
+  }
+
+  return parts.slice(0, 2).map((part) => part[0]).join('').toUpperCase()
+}
+
+const getEvidenceAssets = (flag: DisplayFlag | null, assets: { previewUrl: string; selfieUrl: string; documentUrl: string }): EvidenceAsset[] => {
+  if (!flag) {
+    return []
+  }
+
+  const documentLabel = prefersDocumentAsset(flag) ? 'Verification Document' : 'Related Document'
+
+  return [
+    { label: 'Flagged Asset', url: assets.previewUrl, icon: ImageIcon },
+    { label: 'Selfie Evidence', url: assets.selfieUrl, icon: ImageIcon },
+    { label: documentLabel, url: assets.documentUrl, icon: FileBadge2 },
+  ].filter((asset) => asset.url)
+}
+
 export default function TrustSafetyPage() {
   const { t } = useTranslation()
   const { toast } = useToast()
@@ -272,6 +359,10 @@ export default function TrustSafetyPage() {
   const [detectUserId, setDetectUserId] = useState('')
   const [detectResult, setDetectResult] = useState<any>(null)
   const [detectLoading, setDetectLoading] = useState(false)
+
+  const evidenceAssets = getEvidenceAssets(resolveDialog.flag, flagAssets)
+  const confidencePercent = getConfidencePercent(resolveDialog.flag)
+  const riskMeta = getRiskMeta(resolveDialog.flag)
 
   const fetchFlags = async () => {
     setLoading(true)
@@ -565,112 +656,266 @@ export default function TrustSafetyPage() {
           setFlagAssets({ loading: false, previewUrl: '', selfieUrl: '', documentUrl: '' })
         }
       }}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{t('trustSafety.resolveFlag')}</DialogTitle>
-            <DialogDescription>
-              Flag type: <strong>{resolveDialog.flag?.type}</strong> on {resolveDialog.flag?.entityType}
-            </DialogDescription>
-          </DialogHeader>
-          {(resolveDialog.flag?.userName || resolveDialog.flag?.userEmail) && (
-            <div className="rounded-lg border p-3 text-sm">
-              <p className="font-medium">{resolveDialog.flag?.userName || 'Unknown user'}</p>
-              {resolveDialog.flag?.userEmail ? (
-                <p className="text-muted-foreground">{resolveDialog.flag.userEmail}</p>
-              ) : null}
-            </div>
-          )}
-          {resolveDialog.flag?.content && (
-            <div className="rounded-lg bg-muted p-3 text-sm">
-              <p className="text-xs font-medium text-muted-foreground mb-1">Flagged content:</p>
-              {resolveDialog.flag.content}
-            </div>
-          )}
-          {flagAssets.loading ? (
-            <div className="flex items-center justify-center rounded-lg border p-6">
-              <Loader2 className="h-5 w-5 animate-spin text-primary" />
-            </div>
-          ) : (
-            (flagAssets.previewUrl || flagAssets.selfieUrl || flagAssets.documentUrl) && (
-              <div className="grid gap-3 sm:grid-cols-2">
-                {[
-                  { label: 'Flagged Asset', url: flagAssets.previewUrl },
-                  { label: 'Selfie', url: flagAssets.selfieUrl },
-                  { label: prefersDocumentAsset(resolveDialog.flag || { type: '', entityType: '', content: '' }) ? 'Document' : 'Related Document', url: flagAssets.documentUrl },
-                ]
-                  .filter((asset) => asset.url)
-                  .map((asset) => (
-                    <button
-                      key={`${asset.label}-${asset.url}`}
-                      type="button"
-                      className="overflow-hidden rounded-lg border text-left hover:bg-muted/40"
-                      onClick={() => setPreviewImg(asset.url)}
-                    >
-                      <img src={asset.url} alt={asset.label} className="h-40 w-full object-cover" />
-                      <div className="flex items-center justify-between p-3 text-sm">
-                        <span className="font-medium">{asset.label}</span>
-                        <Eye className="h-4 w-4 text-muted-foreground" />
-                      </div>
-                    </button>
-                  ))}
+        <DialogContent className="max-w-5xl overflow-hidden p-0 sm:rounded-2xl [&>button]:right-5 [&>button]:top-5 [&>button]:rounded-full [&>button]:border [&>button]:border-white/15 [&>button]:bg-white/10 [&>button]:text-white [&>button]:opacity-100 hover:[&>button]:bg-white/20">
+          <DialogHeader className="bg-[radial-gradient(circle_at_top_left,_rgba(59,130,246,0.35),_transparent_35%),linear-gradient(135deg,#0f172a_0%,#111827_45%,#1f2937_100%)] px-6 py-6 text-white sm:px-8">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+              <div className="space-y-4">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge className="border-transparent bg-white/10 text-white">Moderation Review</Badge>
+                  {resolveDialog.flag ? flagTypeBadge(resolveDialog.flag.type) : null}
+                  {resolveDialog.flag ? sourceBadge(resolveDialog.flag.source) : null}
+                  {resolveDialog.flag ? statusBadge(resolveDialog.flag.status) : null}
+                </div>
+                <div className="space-y-2">
+                  <DialogTitle className="text-2xl font-semibold tracking-tight text-white">
+                    {t('trustSafety.resolveFlag')}
+                  </DialogTitle>
+                  <DialogDescription className="max-w-2xl text-sm text-slate-200">
+                    Review the evidence, confirm the user impact, and take the right moderation action without leaving this case.
+                  </DialogDescription>
+                </div>
               </div>
-            )
-          )}
-          {resolveDialog.flag?.userId && (
-            <div className="flex flex-wrap gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                className="gap-2"
-                onClick={() => window.open(`/users/${resolveDialog.flag?.userId}`, '_blank')}
-              >
-                <ExternalLink className="h-4 w-4" />
-                Open user profile
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                className="gap-2"
-                disabled={userActionLoading.length > 0}
-                onClick={() => { void handleUserSafetyAction('shadow-ban') }}
-              >
-                {userActionLoading === 'shadow-ban' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Shield className="h-4 w-4" />}
-                Shadow Ban
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                className="gap-2"
-                disabled={userActionLoading.length > 0}
-                onClick={() => { void handleUserSafetyAction('remove-shadow-ban') }}
-              >
-                {userActionLoading === 'remove-shadow-ban' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Shield className="h-4 w-4" />}
-                Remove Shadow Ban
-              </Button>
+
+              <div className="min-w-[220px] rounded-2xl border border-white/10 bg-white/10 p-4 backdrop-blur-sm">
+                <p className="text-xs font-medium uppercase tracking-[0.18em] text-slate-300">Risk Signal</p>
+                <div className="mt-3 flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-3xl font-semibold text-white">
+                      {confidencePercent !== null ? `${confidencePercent}%` : '--'}
+                    </p>
+                    <p className="text-sm text-slate-300">{riskMeta.label}</p>
+                  </div>
+                  <Badge variant={riskMeta.badgeVariant}>{riskMeta.label}</Badge>
+                </div>
+                <Progress value={confidencePercent ?? 0} className="mt-4 bg-white/15" />
+              </div>
             </div>
-          )}
-          <Select value={resolveStatus} onValueChange={(value) => setResolveStatus(value as ResolveStatus)}>
-            <SelectTrigger>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="action_taken">{t('trustSafety.actionTaken')}</SelectItem>
-              <SelectItem value="reviewed">{t('trustSafety.reviewedNoAction')}</SelectItem>
-              <SelectItem value="dismissed">{t('trustSafety.dismissed')}</SelectItem>
-            </SelectContent>
-          </Select>
-          <Textarea
-            placeholder={t('trustSafety.reviewNote')}
-            value={reviewNote}
-            onChange={(e) => setReviewNote(e.target.value)}
-          />
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setResolveDialog({ open: false, flag: null })}>{t('common.cancel')}</Button>
-            <Button onClick={handleResolve} disabled={resolveLoading}>
-              {resolveLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-              {t('common.submit')}
-            </Button>
-          </DialogFooter>
+          </DialogHeader>
+
+          <div className="max-h-[82vh] overflow-y-auto bg-background">
+            <div className="grid gap-0 lg:grid-cols-[minmax(0,1.4fr)_360px]">
+              <div className="space-y-6 p-6 sm:p-8">
+                <section className="rounded-2xl border bg-card p-5 shadow-sm">
+                  <div className="flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between">
+                    <div className="flex items-center gap-4">
+                      <Avatar className="h-14 w-14 ring-4 ring-slate-100">
+                        {resolveDialog.flag?.selfieUrl ? (
+                          <AvatarImage src={resolveDialog.flag.selfieUrl} alt={resolveDialog.flag.userName || 'Flagged user'} />
+                        ) : null}
+                        <AvatarFallback className="bg-slate-900 text-sm font-semibold text-white">
+                          {getUserInitials(resolveDialog.flag)}
+                        </AvatarFallback>
+                      </Avatar>
+                      <div className="space-y-1">
+                        <p className="text-base font-semibold">
+                          {resolveDialog.flag?.userName || 'Unknown user'}
+                        </p>
+                        <p className="text-sm text-muted-foreground">
+                          {resolveDialog.flag?.userEmail || 'No email available'}
+                        </p>
+                        <div className="flex flex-wrap gap-2 pt-1">
+                          {resolveDialog.flag ? flagTypeBadge(resolveDialog.flag.type) : null}
+                          {resolveDialog.flag ? sourceBadge(resolveDialog.flag.source) : null}
+                          {resolveDialog.flag ? statusBadge(resolveDialog.flag.status) : null}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="grid gap-3 text-sm sm:min-w-[220px]">
+                      <div>
+                        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Entity</p>
+                        <p className="mt-1 font-medium">{resolveDialog.flag?.entityType || 'Unknown'}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Flagged At</p>
+                        <p className="mt-1 font-medium">
+                          {resolveDialog.flag?.createdAt ? formatDateTime(resolveDialog.flag.createdAt) : 'Unknown'}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </section>
+
+                <section className="rounded-2xl border bg-card p-5 shadow-sm">
+                  <div className="flex items-center gap-2 text-sm font-semibold">
+                    <MessageSquareWarning className="h-4 w-4 text-amber-500" />
+                    Case Summary
+                  </div>
+                  <Separator className="my-4" />
+                  {resolveDialog.flag?.content ? (
+                    <div className="rounded-2xl bg-muted/60 p-4 text-sm leading-6 text-foreground">
+                      {resolveDialog.flag.content}
+                    </div>
+                  ) : (
+                    <div className="rounded-2xl border border-dashed p-4 text-sm text-muted-foreground">
+                      No flagged text content was attached to this case.
+                    </div>
+                  )}
+                </section>
+
+                <section className="rounded-2xl border bg-card p-5 shadow-sm">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-semibold">Evidence Gallery</p>
+                      <p className="text-sm text-muted-foreground">Open any asset to inspect the evidence full screen.</p>
+                    </div>
+                    {evidenceAssets.length > 0 ? (
+                      <Badge variant="outline">{evidenceAssets.length} evidence item{evidenceAssets.length > 1 ? 's' : ''}</Badge>
+                    ) : null}
+                  </div>
+                  <Separator className="my-4" />
+
+                  {flagAssets.loading ? (
+                    <div className="flex min-h-[240px] items-center justify-center rounded-2xl border border-dashed bg-muted/30">
+                      <Loader2 className="h-5 w-5 animate-spin text-primary" />
+                    </div>
+                  ) : evidenceAssets.length > 0 ? (
+                    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                      {evidenceAssets.map((asset) => {
+                        const AssetIcon = asset.icon
+
+                        return (
+                          <button
+                            key={`${asset.label}-${asset.url}`}
+                            type="button"
+                            className="group overflow-hidden rounded-2xl border bg-background text-left shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md"
+                            onClick={() => setPreviewImg(asset.url)}
+                          >
+                            <div className="relative h-48 overflow-hidden bg-slate-100">
+                              <img
+                                src={asset.url}
+                                alt={asset.label}
+                                className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.03]"
+                              />
+                              <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-slate-950/70 via-slate-950/15 to-transparent p-3 text-white">
+                                <div className="inline-flex items-center gap-2 rounded-full bg-white/12 px-2.5 py-1 text-[11px] font-medium backdrop-blur-sm">
+                                  <AssetIcon className="h-3.5 w-3.5" />
+                                  {asset.label}
+                                </div>
+                              </div>
+                            </div>
+                            <div className="flex items-center justify-between p-4">
+                              <div>
+                                <p className="text-sm font-semibold">{asset.label}</p>
+                                <p className="text-xs text-muted-foreground">Click to inspect in detail</p>
+                              </div>
+                              <Eye className="h-4 w-4 text-muted-foreground transition-transform group-hover:scale-110" />
+                            </div>
+                          </button>
+                        )
+                      })}
+                    </div>
+                  ) : (
+                    <div className="flex min-h-[240px] flex-col items-center justify-center rounded-2xl border border-dashed bg-muted/20 px-6 text-center">
+                      <ImageIcon className="h-10 w-10 text-muted-foreground/50" />
+                      <p className="mt-4 text-sm font-medium">No evidence assets available</p>
+                      <p className="mt-1 max-w-md text-sm text-muted-foreground">
+                        This case does not currently include preview media, selfie evidence, or a related verification document.
+                      </p>
+                    </div>
+                  )}
+                </section>
+              </div>
+
+              <aside className="border-t bg-slate-50/60 p-6 sm:p-8 lg:border-l lg:border-t-0">
+                <div className="space-y-6 lg:sticky lg:top-0">
+                  <section className="rounded-2xl border bg-background p-5 shadow-sm">
+                    <div className="space-y-1">
+                      <p className="text-sm font-semibold">Moderator Action</p>
+                      <p className="text-sm text-muted-foreground">
+                        Choose the final outcome and leave a note for future audit history.
+                      </p>
+                    </div>
+                    <Separator className="my-4" />
+                    <div className="space-y-4">
+                      <div className="space-y-2">
+                        <label className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                          Resolution
+                        </label>
+                        <Select value={resolveStatus} onValueChange={(value) => setResolveStatus(value as ResolveStatus)}>
+                          <SelectTrigger className="h-11 rounded-xl">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="action_taken">{t('trustSafety.actionTaken')}</SelectItem>
+                            <SelectItem value="reviewed">{t('trustSafety.reviewedNoAction')}</SelectItem>
+                            <SelectItem value="dismissed">{t('trustSafety.dismissed')}</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+
+                      <div className="space-y-2">
+                        <label className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                          Review Note
+                        </label>
+                        <Textarea
+                          className="min-h-[140px] rounded-xl"
+                          placeholder={t('trustSafety.reviewNote')}
+                          value={reviewNote}
+                          onChange={(e) => setReviewNote(e.target.value)}
+                        />
+                      </div>
+                    </div>
+                  </section>
+
+                  {resolveDialog.flag?.userId && (
+                    <section className="rounded-2xl border bg-background p-5 shadow-sm">
+                      <div className="space-y-1">
+                        <p className="text-sm font-semibold">User Safety Controls</p>
+                        <p className="text-sm text-muted-foreground">Take immediate action on the flagged account when needed.</p>
+                      </div>
+                      <Separator className="my-4" />
+                      <div className="grid gap-2">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className="justify-start gap-2 rounded-xl"
+                          onClick={() => window.open(`/users/${resolveDialog.flag?.userId}`, '_blank')}
+                        >
+                          <ExternalLink className="h-4 w-4" />
+                          Open user profile
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className="justify-start gap-2 rounded-xl border-amber-200 bg-amber-50 text-amber-900 hover:bg-amber-100"
+                          disabled={userActionLoading.length > 0}
+                          onClick={() => { void handleUserSafetyAction('shadow-ban') }}
+                        >
+                          {userActionLoading === 'shadow-ban' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Ban className="h-4 w-4" />}
+                          Shadow Ban User
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className="justify-start gap-2 rounded-xl border-emerald-200 bg-emerald-50 text-emerald-900 hover:bg-emerald-100"
+                          disabled={userActionLoading.length > 0}
+                          onClick={() => { void handleUserSafetyAction('remove-shadow-ban') }}
+                        >
+                          {userActionLoading === 'remove-shadow-ban' ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
+                          Remove Shadow Ban
+                        </Button>
+                      </div>
+                    </section>
+                  )}
+
+                  <DialogFooter className="gap-2 sm:justify-stretch sm:space-x-0">
+                    <Button
+                      variant="outline"
+                      className="rounded-xl"
+                      onClick={() => setResolveDialog({ open: false, flag: null })}
+                    >
+                      {t('common.cancel')}
+                    </Button>
+                    <Button className="rounded-xl" onClick={handleResolve} disabled={resolveLoading}>
+                      {resolveLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle className="mr-2 h-4 w-4" />}
+                      {t('common.submit')}
+                    </Button>
+                  </DialogFooter>
+                </div>
+              </aside>
+            </div>
+          </div>
         </DialogContent>
       </Dialog>
 
