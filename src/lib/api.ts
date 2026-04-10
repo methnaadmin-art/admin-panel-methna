@@ -176,25 +176,29 @@ export const adminApi = {
     id: string,
     data: { enabled: boolean; startDate?: string | null; expiryDate?: string | null; plan?: string }
   ) => {
-    const resolvedPlan = data.plan || (data.enabled ? 'premium' : 'free')
     const payload = {
-      enabled: data.enabled,
+      startDate: data.startDate,
+      expiryDate: data.expiryDate,
+    }
+    const fallbackUserPayload = {
       isPremium: data.enabled,
-      premiumEnabled: data.enabled,
-      plan: resolvedPlan,
-      startDate: data.startDate ?? null,
-      expiryDate: data.expiryDate ?? null,
-      premiumStartDate: data.startDate ?? null,
-      premiumExpiryDate: data.expiryDate ?? null,
+      premiumStartDate: data.enabled ? data.startDate ?? null : null,
+      premiumExpiryDate: data.enabled ? data.expiryDate ?? null : null,
+      plan: data.enabled ? (data.plan || 'premium') : 'free',
+    }
+
+    if (!data.enabled) {
+      return tryApiRequests([
+        () => api.delete(`/admin/users/${id}/premium`),
+        () => api.patch(`/admin/users/${id}`, fallbackUserPayload),
+        () => api.put(`/admin/users/${id}`, fallbackUserPayload),
+      ])
     }
 
     return tryApiRequests([
-      () => api.patch(`/admin/users/${id}/premium`, payload),
-      () => api.put(`/admin/users/${id}/premium`, payload),
-      () => api.patch(`/admin/users/${id}/subscription`, payload),
-      () => api.patch(`/admin/subscriptions/users/${id}`, payload),
-      () => api.patch(`/admin/users/${id}`, payload),
-      () => api.put(`/admin/users/${id}`, payload),
+      () => api.post(`/admin/users/${id}/premium`, payload),
+      () => api.patch(`/admin/users/${id}`, fallbackUserPayload),
+      () => api.put(`/admin/users/${id}`, fallbackUserPayload),
     ])
   },
   deleteUser: (id: string) => api.delete(`/admin/users/${id}`),
@@ -203,6 +207,7 @@ export const adminApi = {
   getPendingDocuments: () =>
     tryApiRequests([
       () => api.get('/admin/documents/pending'),
+      () => api.get('/admin/verifications/pending'),
       () => api.get('/admin/verification/documents/pending'),
       () => api.get('/admin/users/pending-documents'),
     ]),
@@ -222,8 +227,9 @@ export const adminApi = {
     ]),
   verifySelfie: (userId: string, approved: boolean) =>
     tryApiRequests([
-      () => api.patch(`/admin/users/${userId}/selfie-verification`, { approved }),
-      () => api.patch(`/admin/users/${userId}/verify-selfie`, { approved }),
+      () => api.patch(`/admin/users/${userId}/verification/selfie`, {
+        status: approved ? 'approved' : 'rejected',
+      }),
       () => api.patch(`/admin/users/${userId}`, {
         selfieVerified: approved,
         selfieVerificationStatus: approved ? 'approved' : 'rejected',
@@ -235,9 +241,10 @@ export const adminApi = {
     ]),
   verifyMaritalStatus: (userId: string, approved: boolean, rejectionReason?: string) =>
     tryApiRequests([
-      () => api.patch(`/admin/users/${userId}/marital-verification`, { approved, rejectionReason }),
-      () => api.patch(`/admin/users/${userId}/verify-marital-status`, { approved, rejectionReason }),
-      () => api.patch(`/admin/users/${userId}/document-verification`, { approved, rejectionReason }),
+      () => api.patch(`/admin/users/${userId}/verification/marital-status`, {
+        status: approved ? 'approved' : 'rejected',
+        rejectionReason,
+      }),
       () => api.patch(`/admin/users/${userId}`, {
         maritalVerified: approved,
         maritalStatusVerified: approved,
