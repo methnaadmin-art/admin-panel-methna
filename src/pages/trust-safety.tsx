@@ -36,6 +36,7 @@ type DisplayFlag = ContentFlag & {
 }
 
 type TrustSafetyRecord = Record<string, any>
+type ResolveStatus = 'action_taken' | 'reviewed' | 'dismissed'
 
 const isRecord = (value: unknown): value is TrustSafetyRecord =>
   typeof value === 'object' && value !== null
@@ -228,6 +229,21 @@ const sourceBadge = (source: string) => {
   }
 }
 
+const statusBadge = (status: string) => {
+  switch (String(status || '').toUpperCase()) {
+    case 'PENDING':
+      return <Badge variant="warning">Pending</Badge>
+    case 'ACTION_TAKEN':
+      return <Badge variant="success">Action Taken</Badge>
+    case 'REVIEWED':
+      return <Badge variant="info">Reviewed</Badge>
+    case 'DISMISSED':
+      return <Badge variant="secondary">Dismissed</Badge>
+    default:
+      return <Badge variant="secondary">{status || 'Unknown'}</Badge>
+  }
+}
+
 export default function TrustSafetyPage() {
   const { t } = useTranslation()
   const { toast } = useToast()
@@ -248,8 +264,9 @@ export default function TrustSafetyPage() {
   const [resolveDialog, setResolveDialog] = useState<{ open: boolean; flag: DisplayFlag | null }>({
     open: false, flag: null,
   })
-  const [resolveStatus, setResolveStatus] = useState('ACTION_TAKEN')
+  const [resolveStatus, setResolveStatus] = useState<ResolveStatus>('action_taken')
   const [reviewNote, setReviewNote] = useState('')
+  const [userActionLoading, setUserActionLoading] = useState<'shadow-ban' | 'remove-shadow-ban' | ''>('')
 
   // Suspicious detection
   const [detectUserId, setDetectUserId] = useState('')
@@ -322,7 +339,7 @@ export default function TrustSafetyPage() {
   }
 
   const openResolveDialog = (flag: DisplayFlag) => {
-    setResolveStatus('ACTION_TAKEN')
+    setResolveStatus('action_taken')
     setReviewNote('')
     setResolveDialog({ open: true, flag })
     void loadFlagAssets(flag)
@@ -339,7 +356,7 @@ export default function TrustSafetyPage() {
       toast({
         title: t('trustSafety.resolve'),
         description: `${resolveDialog.flag.type} marked as ${resolveStatus.toLowerCase().replace(/_/g, ' ')}`,
-        variant: resolveStatus === 'DISMISSED' ? 'warning' : 'success',
+        variant: resolveStatus === 'dismissed' ? 'warning' : 'success',
       })
       await fetchFlags()
     } catch (err) {
@@ -351,6 +368,35 @@ export default function TrustSafetyPage() {
       })
     } finally {
       setResolveLoading(false)
+    }
+  }
+
+  const handleUserSafetyAction = async (action: 'shadow-ban' | 'remove-shadow-ban') => {
+    const targetUserId = firstString(resolveDialog.flag?.userId, resolveDialog.flag?.entityId)
+    if (!targetUserId) {
+      return
+    }
+
+    setUserActionLoading(action)
+    try {
+      if (action === 'shadow-ban') {
+        await trustSafetyApi.shadowBan(targetUserId)
+      } else {
+        await trustSafetyApi.removeShadowBan(targetUserId)
+      }
+
+      toast({
+        title: action === 'shadow-ban' ? 'User shadow banned' : 'Shadow ban removed',
+        variant: action === 'shadow-ban' ? 'warning' : 'success',
+      })
+    } catch (error: any) {
+      toast({
+        title: 'Trust & Safety action failed',
+        description: error?.response?.data?.message || 'Please try again.',
+        variant: 'error',
+      })
+    } finally {
+      setUserActionLoading('')
     }
   }
 
@@ -447,6 +493,7 @@ export default function TrustSafetyPage() {
                     <th className="pb-3 pe-4 font-medium">{t('trustSafety.type')}</th>
                     <th className="pb-3 pe-4 font-medium">{t('trustSafety.source')}</th>
                     <th className="pb-3 pe-4 font-medium">{t('trustSafety.entity')}</th>
+                    <th className="pb-3 pe-4 font-medium">{t('users.status')}</th>
                     <th className="pb-3 pe-4 font-medium">{t('trustSafety.content')}</th>
                     <th className="pb-3 pe-4 font-medium">{t('trustSafety.confidence')}</th>
                     <th className="pb-3 pe-4 font-medium">{t('trustSafety.date')}</th>
@@ -461,6 +508,7 @@ export default function TrustSafetyPage() {
                       <td className="py-3 pr-4">
                         <span className="text-xs text-muted-foreground">{flag.entityType}</span>
                       </td>
+                      <td className="py-3 pr-4">{statusBadge(flag.status)}</td>
                       <td className="py-3 pr-4 max-w-[200px] truncate">
                         {flag.content || '-'}
                       </td>
@@ -524,6 +572,14 @@ export default function TrustSafetyPage() {
               Flag type: <strong>{resolveDialog.flag?.type}</strong> on {resolveDialog.flag?.entityType}
             </DialogDescription>
           </DialogHeader>
+          {(resolveDialog.flag?.userName || resolveDialog.flag?.userEmail) && (
+            <div className="rounded-lg border p-3 text-sm">
+              <p className="font-medium">{resolveDialog.flag?.userName || 'Unknown user'}</p>
+              {resolveDialog.flag?.userEmail ? (
+                <p className="text-muted-foreground">{resolveDialog.flag.userEmail}</p>
+              ) : null}
+            </div>
+          )}
           {resolveDialog.flag?.content && (
             <div className="rounded-lg bg-muted p-3 text-sm">
               <p className="text-xs font-medium text-muted-foreground mb-1">Flagged content:</p>
@@ -561,24 +617,46 @@ export default function TrustSafetyPage() {
             )
           )}
           {resolveDialog.flag?.userId && (
-            <Button
-              type="button"
-              variant="outline"
-              className="gap-2"
-              onClick={() => window.open(`/users/${resolveDialog.flag?.userId}`, '_blank')}
-            >
-              <ExternalLink className="h-4 w-4" />
-              Open user profile
-            </Button>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                className="gap-2"
+                onClick={() => window.open(`/users/${resolveDialog.flag?.userId}`, '_blank')}
+              >
+                <ExternalLink className="h-4 w-4" />
+                Open user profile
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                className="gap-2"
+                disabled={userActionLoading.length > 0}
+                onClick={() => { void handleUserSafetyAction('shadow-ban') }}
+              >
+                {userActionLoading === 'shadow-ban' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Shield className="h-4 w-4" />}
+                Shadow Ban
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                className="gap-2"
+                disabled={userActionLoading.length > 0}
+                onClick={() => { void handleUserSafetyAction('remove-shadow-ban') }}
+              >
+                {userActionLoading === 'remove-shadow-ban' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Shield className="h-4 w-4" />}
+                Remove Shadow Ban
+              </Button>
+            </div>
           )}
-          <Select value={resolveStatus} onValueChange={setResolveStatus}>
+          <Select value={resolveStatus} onValueChange={(value) => setResolveStatus(value as ResolveStatus)}>
             <SelectTrigger>
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="ACTION_TAKEN">{t('trustSafety.actionTaken')}</SelectItem>
-              <SelectItem value="REVIEWED">{t('trustSafety.reviewedNoAction')}</SelectItem>
-              <SelectItem value="DISMISSED">{t('trustSafety.dismissed')}</SelectItem>
+              <SelectItem value="action_taken">{t('trustSafety.actionTaken')}</SelectItem>
+              <SelectItem value="reviewed">{t('trustSafety.reviewedNoAction')}</SelectItem>
+              <SelectItem value="dismissed">{t('trustSafety.dismissed')}</SelectItem>
             </SelectContent>
           </Select>
           <Textarea

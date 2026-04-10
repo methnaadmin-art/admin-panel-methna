@@ -440,22 +440,40 @@ export const trustSafetyApi = {
       () => api.get('/admin/content-flags', { params: { page, limit } }),
       () => api.get('/trust-safety/flags', { params: { page, limit } }),
     ]),
-  resolveFlag: (id: string, status: string, note?: string) =>
-    tryApiRequests([
-      () => api.patch(`/trust-safety/admin/flags/${id}`, { status, note }),
-      () => api.patch(`/trust-safety/admin/flags/${id}`, { status, reviewNote: note }),
-      () => api.patch(`/trust-safety/admin/flags/${id}`, { resolution: status, note }),
-      () => api.patch(`/trust-safety/admin/flags/${id}/resolve`, { status, note }),
-      () => api.patch(`/trust-safety/admin/flags/${id}/resolve`, { status, reviewNote: note }),
-      () => api.post(`/trust-safety/admin/flags/${id}/resolve`, { status, note }),
-      () => api.patch(`/admin/trust-safety/flags/${id}`, { status, note }),
-      () => api.patch(`/admin/content-flags/${id}`, { status, note }),
-      () => api.patch(`/admin/content-flags/${id}`, { status, reviewNote: note }),
-      () => api.patch(`/admin/content-flags/${id}`, { resolution: status, moderatorNote: note }),
-      () => api.patch(`/admin/content-flags/${id}/resolve`, { status, reviewNote: note }),
-      () => api.post(`/admin/content-flags/${id}/resolve`, { status, reviewNote: note }),
-      () => api.put(`/admin/content-flags/${id}`, { status, note }),
-    ]),
+  resolveFlag: (id: string, status: string, note?: string) => {
+    const normalizedStatus = typeof status === 'string' ? status.trim() : ''
+    const statusAliases = Array.from(
+      new Set(
+        [
+          normalizedStatus,
+          normalizedStatus.toLowerCase(),
+          normalizedStatus.toUpperCase(),
+        ].filter((value): value is string => value.length > 0)
+      )
+    )
+
+    return tryApiRequests(
+      statusAliases.flatMap((statusAlias) => ([
+        () => api.patch(`/trust-safety/admin/flags/${id}`, { status: statusAlias, note }),
+        () => api.patch(`/trust-safety/admin/flags/${id}`, { status: statusAlias, reviewNote: note }),
+        () => api.patch(`/trust-safety/admin/flags/${id}`, { status: statusAlias, moderatorNote: note }),
+        () => api.patch(`/trust-safety/admin/flags/${id}`, { resolution: statusAlias, note }),
+        () => api.patch(`/trust-safety/admin/flags/${id}/resolve`, { status: statusAlias, note }),
+        () => api.patch(`/trust-safety/admin/flags/${id}/resolve`, { status: statusAlias, reviewNote: note }),
+        () => api.patch(`/trust-safety/admin/flags/${id}/resolve`, { status: statusAlias, moderatorNote: note }),
+        () => api.post(`/trust-safety/admin/flags/${id}/resolve`, { status: statusAlias, note }),
+        () => api.patch(`/admin/trust-safety/flags/${id}`, { status: statusAlias, note }),
+        () => api.patch(`/admin/content-flags/${id}`, { status: statusAlias, note }),
+        () => api.patch(`/admin/content-flags/${id}`, { status: statusAlias, reviewNote: note }),
+        () => api.patch(`/admin/content-flags/${id}`, { status: statusAlias, moderatorNote: note }),
+        () => api.patch(`/admin/content-flags/${id}`, { resolution: statusAlias, moderatorNote: note }),
+        () => api.patch(`/admin/content-flags/${id}/resolve`, { status: statusAlias, reviewNote: note }),
+        () => api.patch(`/admin/content-flags/${id}/resolve`, { status: statusAlias, moderatorNote: note }),
+        () => api.post(`/admin/content-flags/${id}/resolve`, { status: statusAlias, reviewNote: note }),
+        () => api.put(`/admin/content-flags/${id}`, { status: statusAlias, note }),
+      ]))
+    )
+  },
   shadowBan: (userId: string) =>
     tryApiRequests([
       () => api.post(`/trust-safety/admin/shadow-ban/${userId}`),
