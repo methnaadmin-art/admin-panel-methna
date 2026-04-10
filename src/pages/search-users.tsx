@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import { adminApi, searchApi } from '@/lib/api'
+import { adminApi } from '@/lib/api'
+import { fetchAdminUserPool } from '@/lib/admin-user-search'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -21,7 +22,6 @@ type VerificationFilter = 'all' | 'pending' | 'approved' | 'rejected'
 type PremiumFilter = 'all' | 'premium' | 'not_premium' | 'expired'
 type UserStatus = 'active' | 'pending_verification' | 'rejected' | 'banned' | 'suspended'
 
-const SEARCH_POOL_PAGES = 5
 const SEARCH_PAGE_SIZE = 20
 
 const USER_STATUS_OPTIONS: Array<{ value: UserStatus; label: string }> = [
@@ -380,7 +380,7 @@ export default function SearchUsersPage() {
     setPage(1)
   }
 
-  const fetchFallbackMatches = async (
+  const fetchFrontendMatches = async (
     query: string,
     status?: string,
     role?: string,
@@ -393,27 +393,14 @@ export default function SearchUsersPage() {
         ? 'free'
         : undefined
 
-    const settledResponses = await Promise.allSettled(
-      Array.from({ length: SEARCH_POOL_PAGES }, (_, index) =>
-        adminApi.getUsers(
-          index + 1,
-          100,
-          status !== 'all' ? status : undefined,
-          undefined,
-          role !== 'all' ? role : undefined,
-          plan,
-        )
-      )
-    )
+    const userPool = await fetchAdminUserPool({
+      status: status !== 'all' ? status : undefined,
+      role: role !== 'all' ? role : undefined,
+      plan,
+    })
 
     const fallbackPool = uniqueUsersById(
-      settledResponses.flatMap((result) => {
-        if (result.status !== 'fulfilled') {
-          return []
-        }
-
-        return extractResults(result.value.data).map(normalizeSearchUser)
-      })
+      userPool.map(normalizeSearchUser)
     )
 
     const filteredPool = fallbackPool.filter((user) =>
@@ -449,7 +436,7 @@ export default function SearchUsersPage() {
           page,
           SEARCH_PAGE_SIZE,
           status !== 'all' ? status : undefined,
-          trimmedQuery || undefined,
+          undefined,
           role !== 'all' ? role : undefined,
           plan,
         )
@@ -458,44 +445,26 @@ export default function SearchUsersPage() {
         trimmedQuery || premium === 'expired' || verification !== 'all'
       )
 
-      let payload: unknown
+      if (requiresLocalAggregation) {
+        const frontendMatches = await fetchFrontendMatches(
+          trimmedQuery || '',
+          status,
+          role,
+          premium,
+          verification,
+        )
 
-      if (trimmedQuery) {
-        try {
-          const { data } = await searchApi.search({
-            q: trimmedQuery,
-            query: trimmedQuery,
-            search: trimmedQuery,
-            page,
-            limit: SEARCH_PAGE_SIZE,
-            status: status !== 'all' ? status : undefined,
-            role: role !== 'all' ? role : undefined,
-          })
-          payload = data
-
-          const searchResults = extractResults(payload).map(normalizeSearchUser)
-          const filteredSearchResults = searchResults.filter((user) =>
-            userMatchesQuery(user, trimmedQuery) &&
-            userMatchesAdvancedFilters(user, premium || 'all', verification || 'all')
-          )
-          const searchTotal = extractTotal(payload, filteredSearchResults.length)
-
-          if (requestId !== requestIdRef.current) {
-            return
-          }
-
-          if (filteredSearchResults.length > 0 && filteredSearchResults.length === searchResults.length) {
-            setResults(filteredSearchResults)
-            setTotal(searchTotal)
-            return
-          }
-        } catch (searchError) {
-          console.warn('Dedicated search endpoint failed, falling back to admin users search.', searchError)
+        if (requestId !== requestIdRef.current) {
+          return
         }
+
+        setResults(frontendMatches.results)
+        setTotal(frontendMatches.total)
+        return
       }
 
       const { data } = await userListRequest()
-      payload = data
+      const payload = data
       const list = extractResults(payload).map(normalizeSearchUser)
       const listAfterAdvancedFilters = list.filter((user) =>
         userMatchesAdvancedFilters(user, premium || 'all', verification || 'all')
@@ -503,39 +472,8 @@ export default function SearchUsersPage() {
       if (requestId !== requestIdRef.current) {
         return
       }
-
-      if (!trimmedQuery && !requiresLocalAggregation) {
-        setResults(listAfterAdvancedFilters)
-        setTotal(extractTotal(payload, listAfterAdvancedFilters.length))
-        return
-      }
-
-      if (!trimmedQuery && requiresLocalAggregation) {
-        const fallbackMatches = await fetchFallbackMatches('', status, role, premium, verification)
-        if (requestId !== requestIdRef.current) {
-          return
-        }
-
-        setResults(fallbackMatches.results)
-        setTotal(fallbackMatches.total)
-        return
-      }
-
-      const filteredList = listAfterAdvancedFilters.filter((user) => userMatchesQuery(user, trimmedQuery || ''))
-      const payloadTotal = extractTotal(payload, filteredList.length)
-      if (filteredList.length > 0 && filteredList.length === listAfterAdvancedFilters.length) {
-        setResults(filteredList)
-        setTotal(payloadTotal)
-        return
-      }
-
-      const fallbackMatches = await fetchFallbackMatches(trimmedQuery || '', status, role, premium, verification)
-      if (requestId !== requestIdRef.current) {
-        return
-      }
-
-      setResults(fallbackMatches.results)
-      setTotal(fallbackMatches.total)
+      setResults(listAfterAdvancedFilters)
+      setTotal(extractTotal(payload, listAfterAdvancedFilters.length))
     } catch (err) {
       console.error(err)
       if (requestId === requestIdRef.current) {

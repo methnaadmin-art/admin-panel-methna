@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { adminApi } from '@/lib/api'
+import { fetchAdminUserPool, invalidateAdminUserPoolCache } from '@/lib/admin-user-search'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
@@ -563,19 +564,11 @@ export default function UsersPage() {
       )
 
       if (shouldAggregateLocally) {
-        const settledResponses = await Promise.allSettled(
-          Array.from({ length: 5 }, (_, index) =>
-            adminApi.getUsers(index + 1, 100, status, undefined, role, plan)
-          )
-        )
-
         const fallbackPool = uniqueUsersById(
-          settledResponses.flatMap((result) => {
-            if (result.status !== 'fulfilled') {
-              return []
-            }
-
-            return extractUsers(result.value.data)
+          await fetchAdminUserPool({
+            status,
+            role,
+            plan,
           })
         )
 
@@ -586,7 +579,7 @@ export default function UsersPage() {
         return
       }
 
-      const response = await adminApi.getUsers(page, limit, status, trimmedSearch || undefined, role, plan)
+      const response = await adminApi.getUsers(page, limit, status, undefined, role, plan)
       const payload = response.data
       const userList = extractUsers(payload)
       const filteredList = applyFilters(userList)
@@ -648,6 +641,7 @@ export default function UsersPage() {
     setStatusUpdating(true)
     try {
       await adminApi.updateUserStatus(statusDialog.user.id, statusDialog.newStatus)
+      invalidateAdminUserPoolCache()
       patchUserInTable(statusDialog.user.id, (user) => ({
         ...user,
         status: statusDialog.newStatus,
@@ -674,6 +668,7 @@ export default function UsersPage() {
     setDeleteLoading(true)
     try {
       await adminApi.deleteUser(deleteDialog.user.id)
+      invalidateAdminUserPoolCache()
       toast({ title: 'User deleted', variant: 'warning' })
       setDeleteDialog({ open: false, user: null })
       await fetchUsers()
@@ -692,6 +687,7 @@ export default function UsersPage() {
     setCreateLoading(true)
     try {
       await adminApi.createUser(createForm)
+      invalidateAdminUserPoolCache()
       setCreateDialog(false)
       setCreateForm({
         email: '',
@@ -735,6 +731,7 @@ export default function UsersPage() {
         startDate: nextStartDate,
         expiryDate: nextExpiryDate,
       })
+      invalidateAdminUserPoolCache()
 
       patchUserInTable(premiumDialog.user.id, (user) => {
         const currentSubscription = isRecord(user.subscription) ? user.subscription : {}
@@ -788,6 +785,7 @@ export default function UsersPage() {
 
     try {
       await adminApi.verifySelfie(user.id, approved)
+      invalidateAdminUserPoolCache()
       patchUserInTable(user.id, (currentUser) => ({
         ...currentUser,
         selfieVerified: approved,
@@ -824,6 +822,7 @@ export default function UsersPage() {
 
     try {
       await adminApi.verifyMaritalStatus(user.id, approved, approved ? undefined : 'Rejected by admin review')
+      invalidateAdminUserPoolCache()
       patchUserInTable(user.id, (currentUser) => ({
         ...currentUser,
         maritalStatusVerified: approved,
