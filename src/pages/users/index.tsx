@@ -495,6 +495,7 @@ export default function UsersPage() {
   const [search, setSearch] = useState('')
   const [searchInput, setSearchInput] = useState('')
   const [loading, setLoading] = useState(true)
+  const [isRefreshing, setIsRefreshing] = useState(false)
   const [errorMessage, setErrorMessage] = useState('')
 
   const [createDialog, setCreateDialog] = useState(false)
@@ -538,8 +539,15 @@ export default function UsersPage() {
     )
   }
 
-  const fetchUsers = async () => {
-    setLoading(true)
+  const fetchUsers = async (options?: { silent?: boolean }) => {
+    const silent = options?.silent ?? false
+
+    if (silent) {
+      setIsRefreshing(true)
+    } else {
+      setLoading(true)
+    }
+
     setErrorMessage('')
 
     try {
@@ -592,7 +600,11 @@ export default function UsersPage() {
       setUsers([])
       setTotal(0)
     } finally {
-      setLoading(false)
+      if (silent) {
+        setIsRefreshing(false)
+      } else {
+        setLoading(false)
+      }
     }
   }
 
@@ -602,7 +614,7 @@ export default function UsersPage() {
 
   useEffect(() => {
     const refreshId = window.setInterval(() => {
-      void fetchUsers()
+      void fetchUsers({ silent: true })
     }, 15000)
 
     return () => window.clearInterval(refreshId)
@@ -648,7 +660,7 @@ export default function UsersPage() {
       }))
       toast({ title: 'User status updated', variant: 'success' })
       setStatusDialog({ open: false, user: null, newStatus: '' })
-      await fetchUsers()
+      await fetchUsers({ silent: true })
     } catch (error: any) {
       toast({
         title: 'Failed to update status',
@@ -671,7 +683,7 @@ export default function UsersPage() {
       invalidateAdminUserPoolCache()
       toast({ title: 'User deleted', variant: 'warning' })
       setDeleteDialog({ open: false, user: null })
-      await fetchUsers()
+      await fetchUsers({ silent: true })
     } catch (error: any) {
       toast({
         title: 'Failed to delete user',
@@ -698,7 +710,7 @@ export default function UsersPage() {
         status: 'active',
       })
       toast({ title: 'User created', variant: 'success' })
-      await fetchUsers()
+      await fetchUsers({ silent: true })
     } catch (error: any) {
       toast({
         title: 'Failed to create user',
@@ -767,7 +779,7 @@ export default function UsersPage() {
         expiryDate: '',
       })
 
-      await fetchUsers()
+      await fetchUsers({ silent: true })
     } catch (error: any) {
       toast({
         title: 'Failed to update premium status',
@@ -804,7 +816,7 @@ export default function UsersPage() {
         title: approved ? 'Selfie approved' : 'Selfie rejected',
         variant: approved ? 'success' : 'warning',
       })
-      await fetchUsers()
+      await fetchUsers({ silent: true })
     } catch (error: any) {
       toast({
         title: 'Failed to update selfie verification',
@@ -845,7 +857,7 @@ export default function UsersPage() {
         title: approved ? 'Marital verification approved' : 'Marital verification rejected',
         variant: approved ? 'success' : 'warning',
       })
-      await fetchUsers()
+      await fetchUsers({ silent: true })
     } catch (error: any) {
       toast({
         title: 'Failed to update marital verification',
@@ -956,7 +968,14 @@ export default function UsersPage() {
 
       <Card>
         <CardHeader className="pb-3">
-          <CardTitle className="text-lg">{t('users.title')} ({total})</CardTitle>
+          <CardTitle className="flex items-center gap-2 text-lg">
+            {t('users.title')} ({total})
+            {isRefreshing && (
+              <span className="inline-flex items-center gap-1 text-xs font-normal text-muted-foreground">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" /> Syncing
+              </span>
+            )}
+          </CardTitle>
         </CardHeader>
         <CardContent>
           {loading ? (
