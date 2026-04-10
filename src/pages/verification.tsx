@@ -4,45 +4,27 @@ import { useTranslation } from 'react-i18next'
 import { adminApi } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Avatar, AvatarFallback } from '@/components/ui/avatar'
-import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
+import { Card, CardContent } from '@/components/ui/card'
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
-  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { Textarea } from '@/components/ui/textarea'
 import { useToast } from '@/components/ui/toast'
 import {
-  FileCheck,
   Camera,
-  CreditCard,
-  FileText,
   CheckCircle2,
-  XCircle,
-  Clock,
-  Eye,
-  Loader2,
-  ChevronLeft,
-  ChevronRight,
-  Shield,
   ExternalLink,
+  Eye,
+  FileText,
+  Loader2,
+  RefreshCw,
+  Shield,
+  XCircle,
 } from 'lucide-react'
-
-interface PendingPhoto {
-  id: string
-  userId: string
-  url: string
-  moderationStatus: string
-  isSelfieVerification: boolean
-  isMain: boolean
-  createdAt: string
-  user?: { id: string; firstName: string; lastName: string; email: string; selfieVerified: boolean }
-}
 
 interface PendingVerificationUser {
   id: string
@@ -50,6 +32,7 @@ interface PendingVerificationUser {
   lastName: string
   email: string
   selfieUrl: string
+  userImageUrl: string
   selfieVerified: boolean
   verificationStatus: 'pending' | 'approved' | 'rejected'
   status: string
@@ -63,6 +46,7 @@ interface PendingDocUser {
   email: string
   documentUrl: string
   documentType: string
+  userImageUrl: string
   documentVerified: boolean
   verificationStatus: 'pending' | 'approved' | 'rejected'
   status: string
@@ -70,6 +54,10 @@ interface PendingDocUser {
 }
 
 type ApiRecord = Record<string, any>
+type UserStatus = 'active' | 'pending_verification' | 'rejected' | 'banned' | 'suspended'
+
+const USER_POOL_PAGES = 5
+const REFRESH_INTERVAL_MS = 15000
 
 const isRecord = (value: unknown): value is ApiRecord =>
   typeof value === 'object' && value !== null
@@ -138,7 +126,7 @@ const extractItems = (payload: unknown): ApiRecord[] => {
     return []
   }
 
-  for (const key of ['users', 'documents', 'items', 'results', 'data']) {
+  for (const key of ['users', 'documents', 'items', 'results', 'rows', 'data']) {
     const candidate = payload[key]
     if (Array.isArray(candidate)) {
       return candidate.filter(isRecord)
@@ -154,14 +142,114 @@ const extractItems = (payload: unknown): ApiRecord[] => {
   return []
 }
 
-const uniqueById = <T extends { id: string }>(items: T[]) => {
+const uniqueById = <T extends { id?: string }>(items: T[]) => {
   const seen = new Map<string, T>()
   items.forEach((item) => {
-    if (item.id) {
+    if (typeof item.id === 'string' && item.id.length > 0) {
       seen.set(item.id, item)
     }
   })
   return Array.from(seen.values())
+}
+
+const getPhotoFromArray = (value: unknown) => {
+  if (!Array.isArray(value)) {
+    return ''
+  }
+
+  return firstString(
+    ...value.map((item) => {
+      if (!isRecord(item)) {
+        return ''
+      }
+
+      return firstString(item.url, item.photoUrl, item.imageUrl, item.avatarUrl)
+    })
+  )
+}
+
+const getUserImageUrl = (record: ApiRecord, nestedUser: ApiRecord | null) => {
+  const recordProfile = isRecord(record.profile) ? record.profile : null
+  const nestedProfile = nestedUser && isRecord(nestedUser.profile) ? nestedUser.profile : null
+
+  return firstString(
+    record.profileImage,
+    record.profilePhoto,
+    record.avatar,
+    record.avatarUrl,
+    record.photoUrl,
+    nestedUser?.profileImage,
+    nestedUser?.profilePhoto,
+    nestedUser?.avatar,
+    nestedUser?.avatarUrl,
+    nestedUser?.photoUrl,
+    recordProfile?.photoUrl,
+    recordProfile?.avatar,
+    nestedProfile?.photoUrl,
+    nestedProfile?.avatar,
+    getPhotoFromArray(record.photos),
+    getPhotoFromArray(nestedUser?.photos),
+  )
+}
+
+const normalizeUserStatus = (value: unknown): UserStatus | '' => {
+  const normalized = typeof value === 'string' ? value.toLowerCase().trim().replace(/\s+/g, '_') : ''
+
+  if (normalized === 'active') return 'active'
+  if (normalized === 'pending_verification' || normalized === 'pending') return 'pending_verification'
+  if (normalized === 'rejected' || normalized === 'declined' || normalized === 'denied') return 'rejected'
+  if (normalized === 'banned') return 'banned'
+  if (normalized === 'suspended') return 'suspended'
+
+  return ''
+}
+
+const userStatusBadge = (status: string) => {
+  const normalizedStatus = normalizeUserStatus(status)
+
+  if (normalizedStatus === 'active') {
+    return <Badge variant="success">Active</Badge>
+  }
+
+  if (normalizedStatus === 'pending_verification') {
+    return <Badge variant="warning">Pending Verification</Badge>
+  }
+
+  if (normalizedStatus === 'rejected') {
+    return <Badge variant="destructive">Rejected</Badge>
+  }
+
+  if (normalizedStatus === 'banned') {
+    return <Badge variant="destructive">Banned</Badge>
+  }
+
+  if (normalizedStatus === 'suspended') {
+    return <Badge variant="warning">Suspended</Badge>
+  }
+
+  return <Badge variant="secondary">{status || 'Unknown'}</Badge>
+}
+
+const verificationStatusBadge = (status: 'pending' | 'approved' | 'rejected') => {
+  if (status === 'approved') {
+    return <Badge variant="success">Approved</Badge>
+  }
+
+  if (status === 'rejected') {
+    return <Badge variant="destructive">Rejected</Badge>
+  }
+
+  return <Badge variant="warning">Pending</Badge>
+}
+
+const formatSubmittedAt = (value: string) => {
+  const date = new Date(value)
+
+  if (Number.isNaN(date.getTime())) {
+    return 'Just now'
+  }
+
+  return date.toLocaleString()
 }
 
 const normalizePendingSelfieUser = (record: ApiRecord): PendingVerificationUser | null => {
@@ -187,6 +275,7 @@ const normalizePendingSelfieUser = (record: ApiRecord): PendingVerificationUser 
     lastName: firstString(record.lastName, nestedUser?.lastName),
     email: firstString(record.email, nestedUser?.email),
     selfieUrl,
+    userImageUrl: getUserImageUrl(record, nestedUser),
     selfieVerified: firstBoolean(record.selfieVerified, nestedUser?.selfieVerified, verification?.selfieVerified),
     verificationStatus: normalizeVerificationStatus(
       [
@@ -246,7 +335,8 @@ const normalizePendingDocUser = (record: ApiRecord): PendingDocUser | null => {
       document?.type,
       verification?.documentType,
       nestedUser?.documentType,
-    ),
+    ) || 'Marital Document',
+    userImageUrl: getUserImageUrl(record, nestedUser),
     documentVerified: firstBoolean(
       record.documentVerified,
       record.isDocumentVerified,
@@ -280,587 +370,345 @@ const normalizePendingDocUser = (record: ApiRecord): PendingDocUser | null => {
   }
 }
 
-const verificationStatusBadge = (status: 'pending' | 'approved' | 'rejected') => {
-  if (status === 'approved') {
-    return <Badge variant="success" className="text-[10px]">approved</Badge>
-  }
+const loadUserPool = async () => {
+  const settledResponses = await Promise.allSettled(
+    Array.from({ length: USER_POOL_PAGES }, (_, index) => adminApi.getUsers(index + 1, 100))
+  )
 
-  if (status === 'rejected') {
-    return <Badge variant="destructive" className="text-[10px]">rejected</Badge>
-  }
+  return uniqueById(
+    settledResponses.flatMap((result) => {
+      if (result.status !== 'fulfilled') {
+        return []
+      }
 
-  return <Badge variant="warning" className="text-[10px]">pending</Badge>
+      return extractItems(result.value.data).filter((item) => typeof item.id === 'string' && item.id.length > 0)
+    })
+  )
 }
 
 export default function VerificationPage() {
   const { t } = useTranslation()
   const navigate = useNavigate()
   const { toast } = useToast()
-  const [tab, setTab] = useState('selfies')
-  const [photos, setPhotos] = useState<PendingPhoto[]>([])
-  const [loading, setLoading] = useState(true)
-  const [page, setPage] = useState(1)
-  const [total, setTotal] = useState(0)
 
-  // Action dialog
-  const [actionDialog, setActionDialog] = useState<{
-    open: boolean
-    photo: PendingPhoto | null
-    action: string
-    note: string
-  }>({ open: false, photo: null, action: '', note: '' })
-  const [actionLoading, setActionLoading] = useState(false)
-
-  // Stats
-  const [stats, setStats] = useState({ pending: 0, approved: 0, rejected: 0 })
-
-  // Document verification users (selfie)
-  const [docUsers, setDocUsers] = useState<PendingVerificationUser[]>([])
-  const [docLoading, setDocLoading] = useState(false)
-  const [docActionLoading, setDocActionLoading] = useState('')
+  const [tab, setTab] = useState('selfie')
+  const [selfieUsers, setSelfieUsers] = useState<PendingVerificationUser[]>([])
+  const [maritalUsers, setMaritalUsers] = useState<PendingDocUser[]>([])
+  const [selfieLoading, setSelfieLoading] = useState(true)
+  const [maritalLoading, setMaritalLoading] = useState(true)
+  const [actionLoading, setActionLoading] = useState('')
   const [previewImg, setPreviewImg] = useState<string | null>(null)
+  const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(null)
 
-  // Document (passport/ID) verification
-  const [pendingDocs, setPendingDocs] = useState<PendingDocUser[]>([])
-  const [pendingDocsLoading, setPendingDocsLoading] = useState(false)
-  const [docVerifyLoading, setDocVerifyLoading] = useState('')
-
-  const fetchPhotos = async () => {
-    setLoading(true)
-    try {
-      const { data } = await adminApi.getPendingPhotos(page, 20)
-      const allPhotos: PendingPhoto[] = data.photos || data || []
-      setPhotos(allPhotos)
-      setTotal(data.total || 0)
-      setStats((prev) => ({ ...prev, pending: data.total || 0 }))
-    } catch (err) {
-      console.error(err)
-    } finally {
-      setLoading(false)
+  const refreshVerificationData = async (silent = false) => {
+    if (!silent) {
+      setSelfieLoading(true)
+      setMaritalLoading(true)
     }
-  }
 
-  const fetchDocUsers = async () => {
-    setDocLoading(true)
     try {
-      const { data } = await adminApi.getUsers(1, 100)
-      const users = uniqueById(
-        extractItems(data)
-          .map(normalizePendingSelfieUser)
-          .filter((user): user is PendingVerificationUser => user !== null)
-      )
-      setDocUsers(users)
-    } catch (err) {
-      console.error(err)
-    } finally {
-      setDocLoading(false)
-    }
-  }
-
-  const fetchPendingDocs = async () => {
-    setPendingDocsLoading(true)
-    try {
-      const [pendingDocsResult, usersResult] = await Promise.allSettled([
-        adminApi.getPendingDocuments(),
-        adminApi.getUsers(1, 100),
+      const [userPool, pendingDocumentsResult] = await Promise.all([
+        loadUserPool(),
+        adminApi.getPendingDocuments().catch(() => null),
       ])
 
-      const normalizedDocs = [
-        pendingDocsResult,
-        usersResult,
-      ].flatMap((result) => {
-        if (result.status !== 'fulfilled') {
-          return []
-        }
+      const nextSelfieUsers = uniqueById(
+        userPool
+          .map(normalizePendingSelfieUser)
+          .filter((user): user is PendingVerificationUser => Boolean(user))
+      )
 
-        return extractItems(result.value.data)
+      const pendingDocumentRecords = pendingDocumentsResult
+        ? extractItems(pendingDocumentsResult.data)
+        : []
+
+      const nextMaritalUsers = uniqueById(
+        [...pendingDocumentRecords, ...userPool]
           .map(normalizePendingDocUser)
-          .filter((doc): doc is PendingDocUser => Boolean(doc))
-      })
-
-      setPendingDocs(uniqueById(normalizedDocs))
-    } catch (err) {
-      console.error(err)
-    } finally {
-      setPendingDocsLoading(false)
-    }
-  }
-
-  useEffect(() => { fetchPhotos() }, [page])
-  useEffect(() => { fetchDocUsers(); fetchPendingDocs() }, [])
-
-  const selfiePhotos = photos.filter((p) => p.isSelfieVerification)
-  const profilePhotos = photos.filter((p) => !p.isSelfieVerification)
-
-  const handleDocAction = async (userId: string, approved: boolean) => {
-    setDocActionLoading(userId)
-    try {
-      await adminApi.verifySelfie(userId, approved)
-      toast({
-        title: approved ? t('verification.approved') : t('verification.rejected'),
-        description: approved
-          ? t('verification.selfieApprovedDesc')
-          : t('verification.selfieRejectedDesc'),
-        variant: approved ? 'success' : 'warning',
-      })
-      fetchDocUsers()
-    } catch (err) {
-      toast({ title: t('common.error'), description: t('verification.moderationFailed'), variant: 'error' })
-    } finally {
-      setDocActionLoading('')
-    }
-  }
-
-  const handleDocVerify = async (userId: string, approved: boolean, rejectionReason?: string) => {
-    setDocVerifyLoading(userId)
-    try {
-      await adminApi.verifyMaritalStatus(userId, approved, rejectionReason)
-      toast({
-        title: approved ? t('verification.approved') : t('verification.rejected'),
-        description: approved
-          ? t('verification.docApprovedDesc')
-          : t('verification.docRejectedDesc'),
-        variant: approved ? 'success' : 'warning',
-      })
-      fetchPendingDocs()
-    } catch (err) {
-      toast({ title: t('common.error'), description: t('verification.moderationFailed'), variant: 'error' })
-    } finally {
-      setDocVerifyLoading('')
-    }
-  }
-
-  const handleModerate = async () => {
-    if (!actionDialog.photo) return
-    setActionLoading(true)
-    try {
-      let selfieStatusSynced = true
-      await adminApi.moderatePhoto(
-        actionDialog.photo.id,
-        actionDialog.action,
-        actionDialog.note || undefined
+          .filter((user): user is PendingDocUser => Boolean(user))
       )
 
-      if (actionDialog.photo.isSelfieVerification && actionDialog.photo.userId) {
-        try {
-          await adminApi.verifySelfie(actionDialog.photo.userId, actionDialog.action === 'approved')
-        } catch (syncError) {
-          selfieStatusSynced = false
-          console.error(syncError)
-        }
+      setSelfieUsers(nextSelfieUsers)
+      setMaritalUsers(nextMaritalUsers)
+      setLastSyncedAt(new Date().toISOString())
+    } catch (error) {
+      console.error(error)
+      if (!silent) {
+        toast({
+          title: t('common.error'),
+          description: 'Failed to load verification items.',
+          variant: 'error',
+        })
       }
-
-      toast({
-        title: actionDialog.action === 'approved' ? t('verification.approved') : t('verification.rejected'),
-        description: selfieStatusSynced
-          ? `${actionDialog.photo.user?.firstName || 'user'} - ${actionDialog.action}`
-          : t('verification.selfieSyncWarning'),
-        variant: selfieStatusSynced
-          ? actionDialog.action === 'approved' ? 'success' : 'warning'
-          : 'warning',
-      })
-      setActionDialog({ open: false, photo: null, action: '', note: '' })
-      fetchPhotos()
-      fetchDocUsers()
-    } catch (err) {
-      toast({ title: t('common.error'), description: t('verification.moderationFailed'), variant: 'error' })
     } finally {
-      setActionLoading(false)
+      setSelfieLoading(false)
+      setMaritalLoading(false)
     }
   }
 
-  const totalPages = Math.ceil(total / 20)
+  useEffect(() => {
+    void refreshVerificationData()
 
-  const renderPhotoGrid = (items: PendingPhoto[]) => {
-    if (items.length === 0) {
-      return (
-        <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
-          <CheckCircle2 className="h-12 w-12 mb-3 text-emerald-400" />
-          <p className="text-lg font-medium">{t('verification.allCaughtUp')}</p>
-          <p className="text-sm">{t('verification.noPending')}</p>
-        </div>
+    const refreshId = window.setInterval(() => {
+      void refreshVerificationData(true)
+    }, REFRESH_INTERVAL_MS)
+
+    return () => window.clearInterval(refreshId)
+  }, [])
+
+  const applySelfieDecision = (userId: string, approved: boolean) => {
+    setSelfieUsers((currentUsers) =>
+      currentUsers.map((user) =>
+        user.id === userId
+          ? {
+              ...user,
+              selfieVerified: approved,
+              verificationStatus: approved ? 'approved' : 'rejected',
+            }
+          : user
       )
-    }
-
-    return (
-      <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-        {items.map((photo) => (
-          <Card key={photo.id} className="overflow-hidden group">
-            <div className="relative aspect-square">
-              <img
-                src={photo.url}
-                alt="Pending photo"
-                className="h-full w-full object-cover"
-              />
-              <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition-all flex items-center justify-center opacity-0 group-hover:opacity-100">
-                <div className="flex gap-2">
-                  <Button
-                    size="sm"
-                    className="bg-emerald-500 hover:bg-emerald-600 text-white"
-                    onClick={() => setActionDialog({
-                      open: true,
-                      photo,
-                      action: 'approved',
-                      note: '',
-                    })}
-                  >
-                    <CheckCircle2 className="h-4 w-4 me-1" /> {t('photos.approve')}
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="destructive"
-                    onClick={() => setActionDialog({
-                      open: true,
-                      photo,
-                      action: 'rejected',
-                      note: '',
-                    })}
-                  >
-                    <XCircle className="h-4 w-4 me-1" /> {t('photos.reject')}
-                  </Button>
-                </div>
-              </div>
-              {/* Badges */}
-              <div className="absolute top-2 left-2 flex gap-1">
-                {photo.isSelfieVerification && (
-                  <Badge className="bg-blue-500 text-white text-[10px]">{t('verification.selfie')}</Badge>
-                )}
-                {photo.isMain && (
-                  <Badge className="bg-primary text-white text-[10px]">{t('verification.main')}</Badge>
-                )}
-              </div>
-              <div className="absolute top-2 right-2">
-                <Badge variant="warning" className="text-[10px]">
-                  <Clock className="h-3 w-3 me-1" /> {t('reports.pending')}
-                </Badge>
-              </div>
-            </div>
-            <CardContent className="p-3">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2 min-w-0">
-                  <Avatar className="h-6 w-6">
-                    <AvatarFallback className="text-[9px] bg-primary/10 text-primary">
-                      {photo.user?.firstName?.[0]}{photo.user?.lastName?.[0]}
-                    </AvatarFallback>
-                  </Avatar>
-                  <div className="min-w-0">
-                    <p className="text-xs font-medium truncate">
-                      {photo.user?.firstName} {photo.user?.lastName}
-                    </p>
-                    <p className="text-[10px] text-muted-foreground truncate">{photo.user?.email}</p>
-                  </div>
-                </div>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-7 w-7 shrink-0"
-                  onClick={() => navigate(`/users/${photo.userId}`)}
-                >
-                  <ExternalLink className="h-3.5 w-3.5" />
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
     )
   }
 
+  const applyMaritalDecision = (userId: string, approved: boolean) => {
+    setMaritalUsers((currentUsers) =>
+      currentUsers.map((user) =>
+        user.id === userId
+          ? {
+              ...user,
+              documentVerified: approved,
+              verificationStatus: approved ? 'approved' : 'rejected',
+            }
+          : user
+      )
+    )
+  }
+
+  const handleSelfieDecision = async (userId: string, approved: boolean) => {
+    const actionKey = `selfie:${userId}`
+    setActionLoading(actionKey)
+
+    try {
+      await adminApi.verifySelfie(userId, approved)
+      applySelfieDecision(userId, approved)
+      toast({
+        title: approved ? t('verification.approved') : t('verification.rejected'),
+        description: approved ? t('verification.selfieApprovedDesc') : t('verification.selfieRejectedDesc'),
+        variant: approved ? 'success' : 'warning',
+      })
+      await refreshVerificationData(true)
+    } catch (error) {
+      console.error(error)
+      toast({
+        title: t('common.error'),
+        description: 'Failed to update selfie verification.',
+        variant: 'error',
+      })
+    } finally {
+      setActionLoading('')
+    }
+  }
+
+  const handleMaritalDecision = async (userId: string, approved: boolean) => {
+    const actionKey = `marital:${userId}`
+    setActionLoading(actionKey)
+
+    try {
+      await adminApi.verifyMaritalStatus(userId, approved, approved ? undefined : 'Rejected by admin review')
+      applyMaritalDecision(userId, approved)
+      toast({
+        title: approved ? t('verification.approved') : t('verification.rejected'),
+        description: approved ? t('verification.docApprovedDesc') : t('verification.docRejectedDesc'),
+        variant: approved ? 'success' : 'warning',
+      })
+      await refreshVerificationData(true)
+    } catch (error) {
+      console.error(error)
+      toast({
+        title: t('common.error'),
+        description: 'Failed to update marital status verification.',
+        variant: 'error',
+      })
+    } finally {
+      setActionLoading('')
+    }
+  }
+
+  const pendingSelfieCount = selfieUsers.filter((user) => user.verificationStatus === 'pending').length
+  const pendingMaritalCount = maritalUsers.filter((user) => user.verificationStatus === 'pending').length
+  const totalPendingCount = pendingSelfieCount + pendingMaritalCount
+
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div>
-        <h1 className="text-2xl font-bold">{t('verification.title')}</h1>
-        <p className="text-muted-foreground">{t('verification.subtitle')}</p>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h1 className="text-2xl font-bold">{t('verification.title')}</h1>
+          <p className="text-muted-foreground">
+            Selfie uploads and marital documents are reviewed in separate queues with automatic refresh.
+          </p>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <Badge variant="secondary">
+            {lastSyncedAt ? `Last synced ${new Date(lastSyncedAt).toLocaleTimeString()}` : 'Syncing...'}
+          </Badge>
+          <Button variant="outline" size="sm" className="gap-2" onClick={() => void refreshVerificationData()}>
+            <RefreshCw className="h-4 w-4" />
+            Refresh
+          </Button>
+        </div>
       </div>
 
-      {/* Stats */}
-      <div className="grid gap-4 grid-cols-1 sm:grid-cols-3">
+      <Card className="border-primary/20 bg-primary/5">
+        <CardContent className="p-4">
+          <div className="flex flex-col gap-2 text-sm">
+            <p className="font-semibold text-foreground">Clear review queues for the client</p>
+            <p className="text-muted-foreground">
+              Selfie Verification confirms the uploaded selfie. Marital Status Verification reviews the uploaded marital document.
+              Every successful admin action refreshes the UI immediately, and the page re-syncs automatically every 15 seconds.
+            </p>
+          </div>
+        </CardContent>
+      </Card>
+
+      <div className="grid gap-4 sm:grid-cols-3">
         <Card>
-          <CardContent className="p-4 flex items-center gap-3">
-            <div className="rounded-lg bg-amber-50 p-2.5">
-              <Clock className="h-5 w-5 text-amber-500" />
-            </div>
-            <div>
-              <p className="text-2xl font-bold">{total}</p>
-              <p className="text-xs text-muted-foreground">{t('verification.pendingReview')}</p>
-            </div>
+          <CardContent className="p-4">
+            <p className="text-sm text-muted-foreground">Pending Reviews</p>
+            <p className="mt-2 text-2xl font-bold">{totalPendingCount}</p>
           </CardContent>
         </Card>
         <Card>
-          <CardContent className="p-4 flex items-center gap-3">
-            <div className="rounded-lg bg-blue-50 p-2.5">
-              <Camera className="h-5 w-5 text-blue-500" />
-            </div>
-            <div>
-              <p className="text-2xl font-bold">{selfiePhotos.length}</p>
-              <p className="text-xs text-muted-foreground">{t('verification.selfieVerifications')}</p>
-            </div>
+          <CardContent className="p-4">
+            <p className="text-sm text-muted-foreground">Selfie Queue</p>
+            <p className="mt-2 text-2xl font-bold">{pendingSelfieCount}</p>
           </CardContent>
         </Card>
         <Card>
-          <CardContent className="p-4 flex items-center gap-3">
-            <div className="rounded-lg bg-purple-50 p-2.5">
-              <FileCheck className="h-5 w-5 text-purple-500" />
-            </div>
-            <div>
-              <p className="text-2xl font-bold">{profilePhotos.length}</p>
-              <p className="text-xs text-muted-foreground">{t('verification.profilePhotos')}</p>
-            </div>
+          <CardContent className="p-4">
+            <p className="text-sm text-muted-foreground">Marital Queue</p>
+            <p className="mt-2 text-2xl font-bold">{pendingMaritalCount}</p>
           </CardContent>
         </Card>
       </div>
 
-      {/* Tabs */}
       <Tabs value={tab} onValueChange={setTab}>
-        <TabsList className="flex-wrap">
-          <TabsTrigger value="idDocs" className="gap-1.5">
-            <FileText className="h-4 w-4" /> Marital Status Verification
-            {pendingDocs.length > 0 && (
-              <Badge variant="destructive" className="ml-1 h-5 px-1.5 text-[10px]">{pendingDocs.length}</Badge>
+        <TabsList className="grid w-full grid-cols-2">
+          <TabsTrigger value="selfie" className="gap-2">
+            <Camera className="h-4 w-4" />
+            Selfie Verification
+            {pendingSelfieCount > 0 && (
+              <Badge variant="destructive" className="ml-1 h-5 px-1.5 text-[10px]">
+                {pendingSelfieCount}
+              </Badge>
             )}
           </TabsTrigger>
-          <TabsTrigger value="documents" className="gap-1.5">
-            <CreditCard className="h-4 w-4" /> Selfie Verification
-            {docUsers.length > 0 && (
-              <Badge variant="destructive" className="ml-1 h-5 px-1.5 text-[10px]">{docUsers.length}</Badge>
-            )}
-          </TabsTrigger>
-          <TabsTrigger value="selfies" className="gap-1.5">
-            <Camera className="h-4 w-4" /> {t('verification.selfieVerifications')}
-            {selfiePhotos.length > 0 && (
-              <Badge variant="destructive" className="ml-1 h-5 px-1.5 text-[10px]">{selfiePhotos.length}</Badge>
-            )}
-          </TabsTrigger>
-          <TabsTrigger value="photos" className="gap-1.5">
-            <FileCheck className="h-4 w-4" /> {t('verification.profilePhotos')}
-            {profilePhotos.length > 0 && (
-              <Badge variant="destructive" className="ml-1 h-5 px-1.5 text-[10px]">{profilePhotos.length}</Badge>
-            )}
-          </TabsTrigger>
-          <TabsTrigger value="all" className="gap-1.5">
-            {t('verification.allPending')}
-            {total > 0 && (
-              <Badge variant="destructive" className="ml-1 h-5 px-1.5 text-[10px]">{total}</Badge>
+          <TabsTrigger value="marital" className="gap-2">
+            <FileText className="h-4 w-4" />
+            Marital Status Verification
+            {pendingMaritalCount > 0 && (
+              <Badge variant="destructive" className="ml-1 h-5 px-1.5 text-[10px]">
+                {pendingMaritalCount}
+              </Badge>
             )}
           </TabsTrigger>
         </TabsList>
 
-        {/* Marital Verification Tab */}
-        <TabsContent value="idDocs">
-          <div className="space-y-4">
-            {pendingDocs.length > 0 && (
-              <Card className="border-amber-200 bg-amber-50">
-                <CardContent className="p-4 flex items-center gap-3">
-                  <div className="rounded-full bg-white/80 p-2">
-                    <Shield className="h-5 w-5 text-amber-600" />
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <div>
-                      <p className="text-sm font-semibold text-amber-800">{pendingDocs.length} user records with marital document status</p>
-                      <p className="text-xs text-amber-700">Review and update to approved or rejected.</p>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            )}
-
-            {pendingDocsLoading ? (
-              <div className="flex h-64 items-center justify-center">
-                <Loader2 className="h-8 w-8 animate-spin text-primary" />
-              </div>
-            ) : pendingDocs.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
-                <CheckCircle2 className="h-12 w-12 mb-3 text-emerald-400" />
-                <p className="text-lg font-medium">{t('verification.allCaughtUp')}</p>
-                <p className="text-sm">{t('verification.noDocsPending')}</p>
-              </div>
-            ) : (
-              <div className="grid gap-4 grid-cols-1 md:grid-cols-2 xl:grid-cols-3">
-                {pendingDocs.map((u) => (
-                  <Card key={u.id} className="overflow-hidden">
-                    <CardContent className="p-0">
-                      <div
-                        className="relative aspect-[4/3] cursor-pointer group"
-                        onClick={() => setPreviewImg(u.documentUrl)}
-                      >
-                        <img
-                          src={u.documentUrl}
-                          alt={`${u.firstName} ${u.lastName} document`}
-                          className="h-full w-full object-cover"
-                        />
-                        <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-all flex items-center justify-center">
-                          <Eye className="h-8 w-8 text-white opacity-0 group-hover:opacity-80 transition-opacity" />
-                        </div>
-                        <div className="absolute top-2 left-2 flex gap-1">
-                          {verificationStatusBadge(u.verificationStatus)}
-                          {u.documentType && (
-                            <Badge className="bg-blue-500 text-white text-[10px]">{u.documentType.replace('_', ' ')}</Badge>
-                          )}
-                        </div>
-                      </div>
-
-                      <div className="p-4 space-y-3">
-                        <div className="flex items-center gap-3">
-                          <Avatar className="h-9 w-9">
-                            <AvatarFallback className="text-xs bg-primary/10 text-primary">
-                              {u.firstName?.[0]}{u.lastName?.[0]}
-                            </AvatarFallback>
-                          </Avatar>
-                          <div className="min-w-0 flex-1">
-                            <p className="text-sm font-semibold truncate">{u.firstName} {u.lastName}</p>
-                            <p className="text-xs text-muted-foreground truncate">{u.email}</p>
-                          </div>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-8 w-8 shrink-0"
-                            onClick={() => navigate(`/users/${u.id}`)}
-                          >
-                            <ExternalLink className="h-4 w-4" />
-                          </Button>
-                        </div>
-
-                        <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                          <FileText className="h-3.5 w-3.5" />
-                          <span>{u.documentType ? u.documentType.replace('_', ' ') : t('verification.document')}</span>
-                          <span className="mx-1">&middot;</span>
-                          <span className="capitalize">{u.verificationStatus}</span>
-                          <span className="mx-1">&middot;</span>
-                          <span>{new Date(u.createdAt).toLocaleDateString()}</span>
-                        </div>
-
-                        <div className="flex gap-2">
-                          <Button
-                            size="sm"
-                            className="flex-1 bg-emerald-500 hover:bg-emerald-600 text-white gap-1.5"
-                            disabled={docVerifyLoading === u.id}
-                            onClick={() => handleDocVerify(u.id, true)}
-                          >
-                            {docVerifyLoading === u.id ? (
-                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                            ) : (
-                              <CheckCircle2 className="h-3.5 w-3.5" />
-                            )}
-                            {t('verification.approve')}
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="destructive"
-                            className="flex-1 gap-1.5"
-                            disabled={docVerifyLoading === u.id}
-                            onClick={() => handleDocVerify(u.id, false, 'Rejected by admin')}
-                          >
-                            {docVerifyLoading === u.id ? (
-                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                            ) : (
-                              <XCircle className="h-3.5 w-3.5" />
-                            )}
-                            {t('verification.reject')}
-                          </Button>
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-                ))}
-              </div>
-            )}
-          </div>
-        </TabsContent>
-
-        {/* Selfie Verification Tab */}
-        <TabsContent value="documents">
-          {docLoading ? (
+        <TabsContent value="selfie" className="space-y-4">
+          {selfieLoading ? (
             <div className="flex h-64 items-center justify-center">
               <Loader2 className="h-8 w-8 animate-spin text-primary" />
             </div>
-          ) : docUsers.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
-              <CheckCircle2 className="h-12 w-12 mb-3 text-emerald-400" />
-              <p className="text-lg font-medium">{t('verification.allCaughtUp')}</p>
-              <p className="text-sm">{t('verification.noDocsPending')}</p>
-            </div>
+          ) : selfieUsers.length === 0 ? (
+            <Card>
+              <CardContent className="flex flex-col items-center justify-center gap-3 py-16 text-center text-muted-foreground">
+                <CheckCircle2 className="h-12 w-12 text-emerald-400" />
+                <div>
+                  <p className="text-lg font-medium">{t('verification.allCaughtUp')}</p>
+                  <p className="text-sm">No selfie uploads are waiting for review.</p>
+                </div>
+              </CardContent>
+            </Card>
           ) : (
-            <div className="grid gap-4 grid-cols-1 md:grid-cols-2 xl:grid-cols-3">
-              {docUsers.map((u) => (
-                <Card key={u.id} className="overflow-hidden">
-                  <CardContent className="p-0">
-                    <div
-                      className="relative aspect-[4/3] cursor-pointer group"
-                      onClick={() => setPreviewImg(u.selfieUrl)}
-                    >
-                      <img
-                        src={u.selfieUrl}
-                        alt={`${u.firstName} ${u.lastName} selfie`}
-                        className="h-full w-full object-cover"
-                      />
-                      <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-all flex items-center justify-center">
-                        <Eye className="h-8 w-8 text-white opacity-0 group-hover:opacity-80 transition-opacity" />
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+              {selfieUsers.map((user) => (
+                <Card key={user.id} className="overflow-hidden">
+                  <div
+                    className="relative aspect-[4/3] cursor-pointer bg-muted"
+                    onClick={() => setPreviewImg(user.selfieUrl)}
+                  >
+                    <img
+                      src={user.selfieUrl}
+                      alt={`${user.firstName} ${user.lastName} selfie`}
+                      className="h-full w-full object-cover"
+                    />
+                    <div className="absolute inset-0 flex items-center justify-center bg-black/0 transition-all hover:bg-black/20">
+                      <Eye className="h-8 w-8 text-white opacity-0 transition-opacity hover:opacity-90" />
+                    </div>
+                    <div className="absolute left-3 top-3 flex flex-wrap gap-2">
+                      {verificationStatusBadge(user.verificationStatus)}
+                    </div>
+                  </div>
+
+                  <CardContent className="space-y-4 p-4">
+                    <div className="flex items-center gap-3">
+                      <Avatar className="h-12 w-12">
+                        {user.userImageUrl ? <AvatarImage src={user.userImageUrl} alt={`${user.firstName} ${user.lastName}`} /> : null}
+                        <AvatarFallback className="bg-primary/10 text-primary">
+                          {user.firstName?.[0] || '?'}{user.lastName?.[0] || ''}
+                        </AvatarFallback>
+                      </Avatar>
+
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate font-semibold">{user.firstName} {user.lastName}</p>
+                        <p className="truncate text-xs text-muted-foreground">{user.email || `User ${user.id.slice(0, 8)}`}</p>
                       </div>
-                      <div className="absolute top-2 left-2">
-                        {verificationStatusBadge(u.verificationStatus)}
-                      </div>
+
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 shrink-0"
+                        onClick={() => navigate(`/users/${user.id}`)}
+                      >
+                        <ExternalLink className="h-4 w-4" />
+                      </Button>
                     </div>
 
-                    <div className="p-4 space-y-3">
-                      <div className="flex items-center gap-3">
-                        <Avatar className="h-9 w-9">
-                          <AvatarFallback className="text-xs bg-primary/10 text-primary">
-                            {u.firstName?.[0]}{u.lastName?.[0]}
-                          </AvatarFallback>
-                        </Avatar>
-                        <div className="min-w-0 flex-1">
-                          <p className="text-sm font-semibold truncate">{u.firstName} {u.lastName}</p>
-                          <p className="text-xs text-muted-foreground truncate">{u.email}</p>
-                        </div>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-8 w-8 shrink-0"
-                          onClick={() => navigate(`/users/${u.id}`)}
-                        >
-                          <ExternalLink className="h-4 w-4" />
-                        </Button>
-                      </div>
+                    <div className="flex flex-wrap gap-2">
+                      {userStatusBadge(user.status)}
+                      <Badge variant="info">Selfie Upload</Badge>
+                    </div>
 
-                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                        <Shield className="h-3.5 w-3.5" />
-                        <span>{t('verification.selfie')}</span>
-                        <span className="mx-1">&middot;</span>
-                        <span className="capitalize">{u.verificationStatus}</span>
-                        <span className="mx-1">&middot;</span>
-                        <span>{new Date(u.createdAt).toLocaleDateString()}</span>
-                      </div>
+                    <p className="text-xs text-muted-foreground">
+                      Uploaded {formatSubmittedAt(user.createdAt)}
+                    </p>
 
-                      <div className="flex gap-2">
-                        <Button
-                          size="sm"
-                          className="flex-1 bg-emerald-500 hover:bg-emerald-600 text-white gap-1.5"
-                          disabled={docActionLoading === u.id}
-                          onClick={() => handleDocAction(u.id, true)}
-                        >
-                          {docActionLoading === u.id ? (
-                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                          ) : (
-                            <CheckCircle2 className="h-3.5 w-3.5" />
-                          )}
-                          {t('verification.approve')}
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="destructive"
-                          className="flex-1 gap-1.5"
-                          disabled={docActionLoading === u.id}
-                          onClick={() => handleDocAction(u.id, false)}
-                        >
-                          {docActionLoading === u.id ? (
-                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                          ) : (
-                            <XCircle className="h-3.5 w-3.5" />
-                          )}
-                          {t('verification.reject')}
-                        </Button>
-                      </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <Button
+                        className="gap-2 bg-emerald-500 text-white hover:bg-emerald-600"
+                        disabled={actionLoading === `selfie:${user.id}`}
+                        onClick={() => void handleSelfieDecision(user.id, true)}
+                      >
+                        {actionLoading === `selfie:${user.id}` ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <CheckCircle2 className="h-4 w-4" />
+                        )}
+                        Approve
+                      </Button>
+                      <Button
+                        variant="destructive"
+                        className="gap-2"
+                        disabled={actionLoading === `selfie:${user.id}`}
+                        onClick={() => void handleSelfieDecision(user.id, false)}
+                      >
+                        {actionLoading === `selfie:${user.id}` ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <XCircle className="h-4 w-4" />
+                        )}
+                        Reject
+                      </Button>
                     </div>
                   </CardContent>
                 </Card>
@@ -869,101 +717,124 @@ export default function VerificationPage() {
           )}
         </TabsContent>
 
-        {loading ? (
-          <div className="flex h-64 items-center justify-center">
-            <Loader2 className="h-8 w-8 animate-spin text-primary" />
-          </div>
-        ) : (
-          <>
-            <TabsContent value="selfies">{renderPhotoGrid(selfiePhotos)}</TabsContent>
-            <TabsContent value="photos">{renderPhotoGrid(profilePhotos)}</TabsContent>
-            <TabsContent value="all">{renderPhotoGrid(photos)}</TabsContent>
-          </>
-        )}
-      </Tabs>
-
-      {/* Pagination */}
-      {totalPages > 1 && (
-        <div className="flex items-center justify-between border-t pt-4">
-          <p className="text-sm text-muted-foreground">{t('common.page')} {page} {t('common.of')} {totalPages}</p>
-          <div className="flex gap-2">
-            <Button size="sm" variant="outline" disabled={page <= 1} onClick={() => setPage(page - 1)}>
-              <ChevronLeft className="h-4 w-4" />
-            </Button>
-            <Button size="sm" variant="outline" disabled={page >= totalPages} onClick={() => setPage(page + 1)}>
-              <ChevronRight className="h-4 w-4" />
-            </Button>
-          </div>
-        </div>
-      )}
-
-      {/* Image Preview Dialog */}
-      <Dialog open={!!previewImg} onOpenChange={() => setPreviewImg(null)}>
-        <DialogContent className="max-w-2xl p-2">
-          <DialogHeader className="sr-only">
-            <DialogTitle>{t('verification.selfie')}</DialogTitle>
-          </DialogHeader>
-          {previewImg && (
-            <img src={previewImg} alt="Document preview" className="w-full rounded-lg object-contain max-h-[80vh]" />
-          )}
-        </DialogContent>
-      </Dialog>
-
-      {/* Action Dialog */}
-      <Dialog open={actionDialog.open} onOpenChange={(open) => setActionDialog({ ...actionDialog, open })}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>
-              {actionDialog.action === 'approved' ? t('verification.approvePhoto') : t('verification.rejectPhoto')}
-            </DialogTitle>
-            <DialogDescription>
-              {actionDialog.action === 'approved'
-                ? t('verification.approveDesc')
-                : t('verification.rejectDesc')}
-            </DialogDescription>
-          </DialogHeader>
-
-          {actionDialog.photo && (
-            <div className="flex items-center gap-3 rounded-lg border p-3">
-              <img src={actionDialog.photo.url} alt="" className="h-16 w-16 rounded-lg object-cover" />
-              <div>
-                <p className="text-sm font-medium">{actionDialog.photo.user?.firstName} {actionDialog.photo.user?.lastName}</p>
-                <p className="text-xs text-muted-foreground">{actionDialog.photo.user?.email}</p>
-                <div className="mt-1 flex gap-1">
-                  {actionDialog.photo.isSelfieVerification && <Badge variant="info" className="text-[10px]">{t('verification.selfie')}</Badge>}
-                  {actionDialog.photo.isMain && <Badge className="text-[10px]">{t('verification.main')}</Badge>}
+        <TabsContent value="marital" className="space-y-4">
+          {maritalLoading ? (
+            <div className="flex h-64 items-center justify-center">
+              <Loader2 className="h-8 w-8 animate-spin text-primary" />
+            </div>
+          ) : maritalUsers.length === 0 ? (
+            <Card>
+              <CardContent className="flex flex-col items-center justify-center gap-3 py-16 text-center text-muted-foreground">
+                <CheckCircle2 className="h-12 w-12 text-emerald-400" />
+                <div>
+                  <p className="text-lg font-medium">{t('verification.allCaughtUp')}</p>
+                  <p className="text-sm">No marital documents are waiting for review.</p>
                 </div>
-              </div>
+              </CardContent>
+            </Card>
+          ) : (
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+              {maritalUsers.map((user) => (
+                <Card key={user.id} className="overflow-hidden">
+                  <div
+                    className="relative aspect-[4/3] cursor-pointer bg-muted"
+                    onClick={() => setPreviewImg(user.documentUrl)}
+                  >
+                    <img
+                      src={user.documentUrl}
+                      alt={`${user.firstName} ${user.lastName} document`}
+                      className="h-full w-full object-cover"
+                    />
+                    <div className="absolute inset-0 flex items-center justify-center bg-black/0 transition-all hover:bg-black/20">
+                      <Eye className="h-8 w-8 text-white opacity-0 transition-opacity hover:opacity-90" />
+                    </div>
+                    <div className="absolute left-3 top-3 flex flex-wrap gap-2">
+                      {verificationStatusBadge(user.verificationStatus)}
+                      <Badge variant="info">{user.documentType.replace(/_/g, ' ')}</Badge>
+                    </div>
+                  </div>
+
+                  <CardContent className="space-y-4 p-4">
+                    <div className="flex items-center gap-3">
+                      <Avatar className="h-12 w-12">
+                        {user.userImageUrl ? <AvatarImage src={user.userImageUrl} alt={`${user.firstName} ${user.lastName}`} /> : null}
+                        <AvatarFallback className="bg-primary/10 text-primary">
+                          {user.firstName?.[0] || '?'}{user.lastName?.[0] || ''}
+                        </AvatarFallback>
+                      </Avatar>
+
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate font-semibold">{user.firstName} {user.lastName}</p>
+                        <p className="truncate text-xs text-muted-foreground">{user.email || `User ${user.id.slice(0, 8)}`}</p>
+                      </div>
+
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 shrink-0"
+                        onClick={() => navigate(`/users/${user.id}`)}
+                      >
+                        <ExternalLink className="h-4 w-4" />
+                      </Button>
+                    </div>
+
+                    <div className="flex flex-wrap gap-2">
+                      {userStatusBadge(user.status)}
+                      <Badge variant="info">
+                        <Shield className="mr-1 h-3 w-3" />
+                        Marital Document
+                      </Badge>
+                    </div>
+
+                    <p className="text-xs text-muted-foreground">
+                      Uploaded {formatSubmittedAt(user.createdAt)}
+                    </p>
+
+                    <div className="grid grid-cols-2 gap-2">
+                      <Button
+                        className="gap-2 bg-emerald-500 text-white hover:bg-emerald-600"
+                        disabled={actionLoading === `marital:${user.id}`}
+                        onClick={() => void handleMaritalDecision(user.id, true)}
+                      >
+                        {actionLoading === `marital:${user.id}` ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <CheckCircle2 className="h-4 w-4" />
+                        )}
+                        Approve
+                      </Button>
+                      <Button
+                        variant="destructive"
+                        className="gap-2"
+                        disabled={actionLoading === `marital:${user.id}`}
+                        onClick={() => void handleMaritalDecision(user.id, false)}
+                      >
+                        {actionLoading === `marital:${user.id}` ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <XCircle className="h-4 w-4" />
+                        )}
+                        Reject
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
             </div>
           )}
+        </TabsContent>
+      </Tabs>
 
-          <div>
-            <label className="text-sm font-medium">{t('reports.moderatorNote')}</label>
-            <Textarea
-              placeholder="Add a note about this decision..."
-              value={actionDialog.note}
-              onChange={(e) => setActionDialog({ ...actionDialog, note: e.target.value })}
-              className="mt-1.5"
-            />
-          </div>
-
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setActionDialog({ open: false, photo: null, action: '', note: '' })}>
-              {t('common.cancel')}
-            </Button>
-            <Button
-              onClick={handleModerate}
-              disabled={actionLoading}
-              className={actionDialog.action === 'approved' ? 'bg-emerald-500 hover:bg-emerald-600' : ''}
-              variant={actionDialog.action === 'rejected' ? 'destructive' : 'default'}
-            >
-              {actionLoading ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : null}
-              {actionDialog.action === 'approved' ? t('photos.approve') : t('photos.reject')}
-            </Button>
-          </DialogFooter>
+      <Dialog open={!!previewImg} onOpenChange={() => setPreviewImg(null)}>
+        <DialogContent className="max-w-3xl p-2">
+          <DialogHeader className="sr-only">
+            <DialogTitle>Verification Preview</DialogTitle>
+          </DialogHeader>
+          {previewImg && (
+            <img src={previewImg} alt="Verification preview" className="max-h-[85vh] w-full rounded-lg object-contain" />
+          )}
         </DialogContent>
       </Dialog>
-
     </div>
   )
 }

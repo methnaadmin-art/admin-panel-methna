@@ -19,6 +19,18 @@ import { Loader2, Search, Eye, MapPin, ChevronLeft, ChevronRight } from 'lucide-
 type SearchResultUser = Record<string, any>
 type VerificationFilter = 'all' | 'pending' | 'approved' | 'rejected'
 type PremiumFilter = 'all' | 'premium' | 'not_premium' | 'expired'
+type UserStatus = 'active' | 'pending_verification' | 'rejected' | 'banned' | 'suspended'
+
+const SEARCH_POOL_PAGES = 5
+const SEARCH_PAGE_SIZE = 20
+
+const USER_STATUS_OPTIONS: Array<{ value: UserStatus; label: string }> = [
+  { value: 'active', label: 'Active' },
+  { value: 'pending_verification', label: 'Pending Verification' },
+  { value: 'rejected', label: 'Rejected' },
+  { value: 'banned', label: 'Banned' },
+  { value: 'suspended', label: 'Suspended' },
+]
 
 const isRecord = (value: unknown): value is SearchResultUser =>
   typeof value === 'object' && value !== null
@@ -81,6 +93,46 @@ const normalizeSearchUser = (value: SearchResultUser, index: number): SearchResu
 
 const normalizeSearchText = (value: unknown) =>
   typeof value === 'string' ? value.trim().toLowerCase() : ''
+
+const normalizeUserStatus = (value: unknown): UserStatus | '' => {
+  const normalized = normalizeSearchText(value).replace(/\s+/g, '_')
+
+  if (normalized === 'active') return 'active'
+  if (normalized === 'pending_verification' || normalized === 'pending') return 'pending_verification'
+  if (normalized === 'rejected' || normalized === 'declined' || normalized === 'denied') return 'rejected'
+  if (normalized === 'banned') return 'banned'
+  if (normalized === 'suspended') return 'suspended'
+
+  return ''
+}
+
+const getStatusMeta = (status: unknown) => {
+  const normalizedStatus = normalizeUserStatus(status)
+
+  switch (normalizedStatus) {
+    case 'active':
+      return { label: 'Active', variant: 'success' as const }
+    case 'pending_verification':
+      return { label: 'Pending Verification', variant: 'warning' as const }
+    case 'rejected':
+      return { label: 'Rejected', variant: 'destructive' as const }
+    case 'banned':
+      return { label: 'Banned', variant: 'destructive' as const }
+    case 'suspended':
+      return { label: 'Suspended', variant: 'warning' as const }
+    default:
+      return { label: typeof status === 'string' && status.trim() ? status : 'Unknown', variant: 'secondary' as const }
+  }
+}
+
+const verificationBadge = (label: string, status: 'pending' | 'approved' | 'rejected') => {
+  const variant = status === 'approved' ? 'success' : status === 'rejected' ? 'destructive' : 'warning'
+  return (
+    <Badge variant={variant} className="text-[10px]">
+      {label}: {status}
+    </Badge>
+  )
+}
 
 const uniqueUsersById = (items: SearchResultUser[]) =>
   Array.from(new Map(items.map((item) => [String(item.id || ''), item])).values()).filter((item) => item.id)
@@ -342,7 +394,7 @@ export default function SearchUsersPage() {
         : undefined
 
     const settledResponses = await Promise.allSettled(
-      Array.from({ length: 5 }, (_, index) =>
+      Array.from({ length: SEARCH_POOL_PAGES }, (_, index) =>
         adminApi.getUsers(
           index + 1,
           100,
@@ -368,9 +420,9 @@ export default function SearchUsersPage() {
       userMatchesQuery(user, query) &&
       userMatchesAdvancedFilters(user, premium || 'all', verification || 'all')
     )
-    const start = (page - 1) * 20
+    const start = (page - 1) * SEARCH_PAGE_SIZE
     return {
-      results: filteredPool.slice(start, start + 20),
+      results: filteredPool.slice(start, start + SEARCH_PAGE_SIZE),
       total: filteredPool.length,
     }
   }
@@ -395,12 +447,16 @@ export default function SearchUsersPage() {
       const userListRequest = () =>
         adminApi.getUsers(
           page,
-          20,
+          SEARCH_PAGE_SIZE,
           status !== 'all' ? status : undefined,
           trimmedQuery || undefined,
           role !== 'all' ? role : undefined,
           plan,
         )
+
+      const requiresLocalAggregation = Boolean(
+        trimmedQuery || premium === 'expired' || verification !== 'all'
+      )
 
       let payload: unknown
 
@@ -411,7 +467,7 @@ export default function SearchUsersPage() {
             query: trimmedQuery,
             search: trimmedQuery,
             page,
-            limit: 20,
+            limit: SEARCH_PAGE_SIZE,
             status: status !== 'all' ? status : undefined,
             role: role !== 'all' ? role : undefined,
           })
@@ -448,13 +504,24 @@ export default function SearchUsersPage() {
         return
       }
 
-      if (!trimmedQuery) {
+      if (!trimmedQuery && !requiresLocalAggregation) {
         setResults(listAfterAdvancedFilters)
         setTotal(extractTotal(payload, listAfterAdvancedFilters.length))
         return
       }
 
-      const filteredList = listAfterAdvancedFilters.filter((user) => userMatchesQuery(user, trimmedQuery))
+      if (!trimmedQuery && requiresLocalAggregation) {
+        const fallbackMatches = await fetchFallbackMatches('', status, role, premium, verification)
+        if (requestId !== requestIdRef.current) {
+          return
+        }
+
+        setResults(fallbackMatches.results)
+        setTotal(fallbackMatches.total)
+        return
+      }
+
+      const filteredList = listAfterAdvancedFilters.filter((user) => userMatchesQuery(user, trimmedQuery || ''))
       const payloadTotal = extractTotal(payload, filteredList.length)
       if (filteredList.length > 0 && filteredList.length === listAfterAdvancedFilters.length) {
         setResults(filteredList)
@@ -462,7 +529,7 @@ export default function SearchUsersPage() {
         return
       }
 
-      const fallbackMatches = await fetchFallbackMatches(trimmedQuery, status, role, premium, verification)
+      const fallbackMatches = await fetchFallbackMatches(trimmedQuery || '', status, role, premium, verification)
       if (requestId !== requestIdRef.current) {
         return
       }
@@ -482,7 +549,7 @@ export default function SearchUsersPage() {
     }
   }
 
-  const totalPages = Math.ceil(total / 20)
+  const totalPages = Math.ceil(total / SEARCH_PAGE_SIZE)
 
   return (
     <div className="space-y-6">
@@ -501,9 +568,9 @@ export default function SearchUsersPage() {
         <CardContent>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-7">
             <div className="lg:col-span-2">
-              <label className="text-xs font-medium text-muted-foreground">Name or Email</label>
+              <label className="text-xs font-medium text-muted-foreground">Name, Email, or User ID</label>
               <Input
-                placeholder="Search by name, email..."
+                placeholder="Search by name, email, or user ID..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
@@ -517,10 +584,11 @@ export default function SearchUsersPage() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">{t('common.all')}</SelectItem>
-                  <SelectItem value="active">Active</SelectItem>
-                  <SelectItem value="suspended">Suspended</SelectItem>
-                  <SelectItem value="pending_verification">Pending</SelectItem>
-                  <SelectItem value="deactivated">Deactivated</SelectItem>
+                  {USER_STATUS_OPTIONS.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
@@ -620,8 +688,12 @@ export default function SearchUsersPage() {
                       )}
                     </div>
                     <div className="flex gap-1 mt-2 flex-wrap">
-                      <Badge variant={user.status === 'active' ? 'success' : user.status === 'suspended' ? 'destructive' : 'secondary'} className="text-[10px] capitalize">{user.status}</Badge>
+                      <Badge variant={getStatusMeta(user.status).variant} className="text-[10px]">
+                        {getStatusMeta(user.status).label}
+                      </Badge>
                       {user.role && user.role !== 'user' && <Badge variant="info" className="text-[10px] capitalize">{user.role}</Badge>}
+                      {verificationBadge('Selfie', getSelfieStatus(user))}
+                      {verificationBadge('Marital', getMaritalStatus(user))}
                     </div>
                   </div>
                   <Button size="icon" variant="ghost" onClick={(e) => { e.stopPropagation(); navigate(`/users/${user.id}`) }}>

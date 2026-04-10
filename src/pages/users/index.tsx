@@ -53,6 +53,15 @@ type UserRecord = Record<string, any>
 type VerificationStatus = 'pending' | 'approved' | 'rejected'
 type PremiumFilter = 'all' | 'premium' | 'not_premium' | 'expired'
 type VerificationFilter = 'all' | VerificationStatus
+type UserStatus = 'active' | 'pending_verification' | 'rejected' | 'banned' | 'suspended'
+
+const USER_STATUS_OPTIONS: Array<{ value: UserStatus; label: string; actionLabel: string }> = [
+  { value: 'active', label: 'Active', actionLabel: 'Activate' },
+  { value: 'pending_verification', label: 'Pending Verification', actionLabel: 'Mark Pending' },
+  { value: 'rejected', label: 'Rejected', actionLabel: 'Reject' },
+  { value: 'banned', label: 'Banned', actionLabel: 'Ban' },
+  { value: 'suspended', label: 'Suspended', actionLabel: 'Suspend' },
+]
 
 const DAY_IN_MS = 24 * 60 * 60 * 1000
 
@@ -124,6 +133,37 @@ const extractTotal = (payload: unknown, fallback: number): number => {
 
 const normalizeSearchText = (value: unknown) =>
   typeof value === 'string' ? value.trim().toLowerCase() : ''
+
+const normalizeUserStatus = (value: unknown): UserStatus | '' => {
+  const normalized = normalizeSearchText(value).replace(/\s+/g, '_')
+
+  if (normalized === 'active') return 'active'
+  if (normalized === 'pending_verification' || normalized === 'pending') return 'pending_verification'
+  if (normalized === 'rejected' || normalized === 'declined' || normalized === 'denied') return 'rejected'
+  if (normalized === 'banned') return 'banned'
+  if (normalized === 'suspended') return 'suspended'
+
+  return ''
+}
+
+const getStatusMeta = (status: unknown) => {
+  const normalizedStatus = normalizeUserStatus(status)
+
+  switch (normalizedStatus) {
+    case 'active':
+      return { label: 'Active', variant: 'success' as const }
+    case 'pending_verification':
+      return { label: 'Pending Verification', variant: 'warning' as const }
+    case 'rejected':
+      return { label: 'Rejected', variant: 'destructive' as const }
+    case 'banned':
+      return { label: 'Banned', variant: 'destructive' as const }
+    case 'suspended':
+      return { label: 'Suspended', variant: 'warning' as const }
+    default:
+      return { label: typeof status === 'string' && status.trim() ? status : 'Unknown', variant: 'secondary' as const }
+  }
+}
 
 const uniqueUsersById = (items: UserRecord[]) =>
   Array.from(new Map(items.map((item) => [String(item.id || ''), item])).values()).filter((item) => item.id)
@@ -395,17 +435,9 @@ const userMatchesVerificationFilter = (user: UserRecord, verificationFilter: Ver
   return selfieStatus === 'pending' || maritalStatus === 'pending'
 }
 
-const statusBadge = (status: string, t: (key: string) => string) => {
-  switch (status) {
-    case 'active':
-      return <Badge variant="success">{t('users.active')}</Badge>
-    case 'suspended':
-      return <Badge variant="warning">{t('users.suspended')}</Badge>
-    case 'banned':
-      return <Badge variant="destructive">{t('users.banned')}</Badge>
-    default:
-      return <Badge variant="secondary">{status || 'unknown'}</Badge>
-  }
+const statusBadge = (status: string) => {
+  const meta = getStatusMeta(status)
+  return <Badge variant={meta.variant}>{meta.label}</Badge>
 }
 
 const verificationBadge = (label: string, status: VerificationStatus) => {
@@ -499,6 +531,12 @@ export default function UsersPage() {
 
   const [rowActionLoading, setRowActionLoading] = useState('')
 
+  const patchUserInTable = (userId: string, update: (user: UserRecord) => UserRecord) => {
+    setUsers((currentUsers) =>
+      currentUsers.map((user) => (user.id === userId ? update(user) : user))
+    )
+  }
+
   const fetchUsers = async () => {
     setLoading(true)
     setErrorMessage('')
@@ -570,6 +608,14 @@ export default function UsersPage() {
   }, [page, statusFilter, roleFilter, premiumFilter, verificationFilter, search])
 
   useEffect(() => {
+    const refreshId = window.setInterval(() => {
+      void fetchUsers()
+    }, 15000)
+
+    return () => window.clearInterval(refreshId)
+  }, [page, statusFilter, roleFilter, premiumFilter, verificationFilter, search])
+
+  useEffect(() => {
     const nextSearch = searchInput.trim()
     if (nextSearch === search) {
       return
@@ -602,6 +648,10 @@ export default function UsersPage() {
     setStatusUpdating(true)
     try {
       await adminApi.updateUserStatus(statusDialog.user.id, statusDialog.newStatus)
+      patchUserInTable(statusDialog.user.id, (user) => ({
+        ...user,
+        status: statusDialog.newStatus,
+      }))
       toast({ title: 'User status updated', variant: 'success' })
       setStatusDialog({ open: false, user: null, newStatus: '' })
       await fetchUsers()
@@ -671,10 +721,40 @@ export default function UsersPage() {
 
     setPremiumSaving(true)
     try {
+      const nextStartDate = premiumDialog.enabled ? toIsoDate(premiumDialog.startDate, 'start') : null
+      const nextExpiryDate = premiumDialog.enabled ? toIsoDate(premiumDialog.expiryDate, 'end') : null
+      const nextSubscriptionStatus =
+        premiumDialog.enabled && previewRemainingDays !== null && previewRemainingDays < 0
+          ? 'expired'
+          : premiumDialog.enabled
+            ? 'active'
+            : 'inactive'
+
       await adminApi.updateUserPremium(premiumDialog.user.id, {
         enabled: premiumDialog.enabled,
-        startDate: premiumDialog.enabled ? toIsoDate(premiumDialog.startDate, 'start') : null,
-        expiryDate: premiumDialog.enabled ? toIsoDate(premiumDialog.expiryDate, 'end') : null,
+        startDate: nextStartDate,
+        expiryDate: nextExpiryDate,
+      })
+
+      patchUserInTable(premiumDialog.user.id, (user) => {
+        const currentSubscription = isRecord(user.subscription) ? user.subscription : {}
+
+        return {
+          ...user,
+          isPremium: premiumDialog.enabled,
+          premiumEnabled: premiumDialog.enabled,
+          premium: premiumDialog.enabled,
+          premiumStartDate: nextStartDate,
+          premiumExpiryDate: nextExpiryDate,
+          subscription: {
+            ...currentSubscription,
+            isPremium: premiumDialog.enabled,
+            plan: premiumDialog.enabled ? currentSubscription.plan || 'premium' : 'free',
+            status: nextSubscriptionStatus,
+            startDate: nextStartDate,
+            endDate: nextExpiryDate,
+          },
+        }
       })
 
       toast({
@@ -708,6 +788,20 @@ export default function UsersPage() {
 
     try {
       await adminApi.verifySelfie(user.id, approved)
+      patchUserInTable(user.id, (currentUser) => ({
+        ...currentUser,
+        selfieVerified: approved,
+        selfieVerificationStatus: approved ? 'approved' : 'rejected',
+        selfieStatus: approved ? 'approved' : 'rejected',
+        selfieRejectionReason: approved ? undefined : 'Rejected by admin review',
+        verification: {
+          ...(isRecord(currentUser.verification) ? currentUser.verification : {}),
+          selfieVerified: approved,
+          selfieVerificationStatus: approved ? 'approved' : 'rejected',
+          selfieStatus: approved ? 'approved' : 'rejected',
+          selfieRejectionReason: approved ? undefined : 'Rejected by admin review',
+        },
+      }))
       toast({
         title: approved ? 'Selfie approved' : 'Selfie rejected',
         variant: approved ? 'success' : 'warning',
@@ -730,6 +824,24 @@ export default function UsersPage() {
 
     try {
       await adminApi.verifyMaritalStatus(user.id, approved, approved ? undefined : 'Rejected by admin review')
+      patchUserInTable(user.id, (currentUser) => ({
+        ...currentUser,
+        maritalStatusVerified: approved,
+        documentVerified: approved,
+        maritalVerificationStatus: approved ? 'approved' : 'rejected',
+        documentVerificationStatus: approved ? 'approved' : 'rejected',
+        documentStatus: approved ? 'approved' : 'rejected',
+        documentRejectionReason: approved ? undefined : 'Rejected by admin review',
+        verification: {
+          ...(isRecord(currentUser.verification) ? currentUser.verification : {}),
+          maritalVerified: approved,
+          documentVerified: approved,
+          maritalVerificationStatus: approved ? 'approved' : 'rejected',
+          documentVerificationStatus: approved ? 'approved' : 'rejected',
+          documentStatus: approved ? 'approved' : 'rejected',
+          documentRejectionReason: approved ? undefined : 'Rejected by admin review',
+        },
+      }))
       toast({
         title: approved ? 'Marital verification approved' : 'Marital verification rejected',
         variant: approved ? 'success' : 'warning',
@@ -778,7 +890,7 @@ export default function UsersPage() {
         <div className="relative w-full sm:w-72">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
-            placeholder={t('users.search')}
+            placeholder="Search by name, email, or user ID..."
             value={searchInput}
             onChange={(event) => setSearchInput(event.target.value)}
             onKeyDown={(event) => event.key === 'Enter' && setSearch(searchInput.trim())}
@@ -792,11 +904,11 @@ export default function UsersPage() {
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">{t('users.allStatuses')}</SelectItem>
-            <SelectItem value="active">{t('users.active')}</SelectItem>
-            <SelectItem value="suspended">{t('users.suspended')}</SelectItem>
-            <SelectItem value="banned">{t('users.banned')}</SelectItem>
-            <SelectItem value="pending_verification">{t('reports.pending')}</SelectItem>
-            <SelectItem value="deactivated">{t('users.deactivated')}</SelectItem>
+            {USER_STATUS_OPTIONS.map((option) => (
+              <SelectItem key={option.value} value={option.value}>
+                {option.label}
+              </SelectItem>
+            ))}
           </SelectContent>
         </Select>
 
@@ -892,7 +1004,25 @@ export default function UsersPage() {
                           </div>
                         </td>
                         <td className="py-3 pr-4 text-muted-foreground">{user.email}</td>
-                        <td className="py-3 pr-4">{statusBadge(user.status, t)}</td>
+                        <td className="py-3 pr-4">
+                          <div className="space-y-2">
+                            {statusBadge(user.status)}
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-7 px-2 text-xs"
+                              onClick={() =>
+                                setStatusDialog({
+                                  open: true,
+                                  user,
+                                  newStatus: normalizeUserStatus(user.status) || 'active',
+                                })
+                              }
+                            >
+                              Set Status
+                            </Button>
+                          </div>
+                        </td>
                         <td className="py-3 pr-4">
                           <div className="space-y-1">
                             <div className="flex items-center gap-1.5">
@@ -920,6 +1050,9 @@ export default function UsersPage() {
                             <Button size="icon" variant="ghost" onClick={() => navigate(`/users/${user.id}`)}>
                               <Eye className="h-4 w-4" />
                             </Button>
+                            <Button size="sm" variant="outline" onClick={() => openPremiumDialog(user)}>
+                              Premium
+                            </Button>
 
                             <DropdownMenu>
                               <DropdownMenuTrigger asChild>
@@ -935,15 +1068,14 @@ export default function UsersPage() {
                                   View Profile
                                 </DropdownMenuItem>
                                 <DropdownMenuSeparator />
-                                <DropdownMenuItem onSelect={() => setStatusDialog({ open: true, user, newStatus: 'active' })}>
-                                  Activate
-                                </DropdownMenuItem>
-                                <DropdownMenuItem onSelect={() => setStatusDialog({ open: true, user, newStatus: 'suspended' })}>
-                                  Suspend
-                                </DropdownMenuItem>
-                                <DropdownMenuItem onSelect={() => setStatusDialog({ open: true, user, newStatus: 'banned' })}>
-                                  Ban
-                                </DropdownMenuItem>
+                                {USER_STATUS_OPTIONS.map((option) => (
+                                  <DropdownMenuItem
+                                    key={option.value}
+                                    onSelect={() => setStatusDialog({ open: true, user, newStatus: option.value })}
+                                  >
+                                    {option.actionLabel}
+                                  </DropdownMenuItem>
+                                ))}
                                 <DropdownMenuSeparator />
                                 <DropdownMenuItem onSelect={() => openPremiumDialog(user)}>
                                   Set Premium
@@ -1012,7 +1144,8 @@ export default function UsersPage() {
           <DialogHeader>
             <DialogTitle>{t('users.status')}</DialogTitle>
             <DialogDescription>
-              Set <strong>{statusDialog.user?.firstName} {statusDialog.user?.lastName}</strong> status to <strong>{statusDialog.newStatus}</strong>?
+              Set <strong>{statusDialog.user?.firstName} {statusDialog.user?.lastName}</strong> status to{' '}
+              <strong>{getStatusMeta(statusDialog.newStatus).label}</strong>?
             </DialogDescription>
           </DialogHeader>
           <Select value={statusDialog.newStatus} onValueChange={(value) => setStatusDialog({ ...statusDialog, newStatus: value })}>
@@ -1020,10 +1153,11 @@ export default function UsersPage() {
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="active">{t('users.active')}</SelectItem>
-              <SelectItem value="suspended">{t('users.suspended')}</SelectItem>
-              <SelectItem value="banned">{t('users.banned')}</SelectItem>
-              <SelectItem value="deactivated">{t('users.deactivated')}</SelectItem>
+              {USER_STATUS_OPTIONS.map((option) => (
+                <SelectItem key={option.value} value={option.value}>
+                  {option.label}
+                </SelectItem>
+              ))}
             </SelectContent>
           </Select>
           <DialogFooter>
@@ -1195,9 +1329,11 @@ export default function UsersPage() {
                 <Select value={createForm.status} onValueChange={(value) => setCreateForm({ ...createForm, status: value })}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="active">{t('users.active')}</SelectItem>
-                    <SelectItem value="suspended">{t('users.suspended')}</SelectItem>
-                    <SelectItem value="pending_verification">{t('reports.pending')}</SelectItem>
+                    {USER_STATUS_OPTIONS.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>
