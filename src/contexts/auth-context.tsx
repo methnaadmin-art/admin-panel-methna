@@ -1,16 +1,26 @@
 import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from 'react'
 import { authApi } from '@/lib/api'
-import type { User, UserRole } from '@/types'
+import type { User } from '@/types'
 
 interface AuthContextType {
   user: User | null
   isAuthenticated: boolean
+  isAdmin: boolean
   isLoading: boolean
   login: (email: string, password: string) => Promise<void>
   logout: () => void
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
+
+const isAdminUser = (value: unknown) => {
+  if (!value || typeof value !== 'object') {
+    return false
+  }
+
+  const role = (value as { role?: unknown }).role
+  return typeof role === 'string' && role.toLowerCase() === 'admin'
+}
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
@@ -23,7 +33,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (token && storedUser) {
       try {
         const parsed = JSON.parse(storedUser)
-        if (parsed.role === 'admin' || parsed.role === 'moderator') {
+        if (isAdminUser(parsed)) {
           setUser(parsed)
         } else {
           localStorage.removeItem('access_token')
@@ -52,8 +62,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       throw new Error('Login response is missing an access token.')
     }
 
-    if (userData.role !== 'admin' && userData.role !== 'moderator') {
-      throw new Error('Access denied. Admin or Moderator role required.')
+    if (!isAdminUser(userData)) {
+      throw new Error('Access denied. Admin role required.')
     }
 
     localStorage.setItem('access_token', accessToken)
@@ -76,6 +86,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       value={{
         user,
         isAuthenticated: !!user,
+        isAdmin: !!user && isAdminUser(user),
         isLoading,
         login,
         logout,

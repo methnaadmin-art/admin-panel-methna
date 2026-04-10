@@ -167,7 +167,36 @@ export const adminApi = {
       () => api.put(`/admin/users/${id}`, data),
     ]),
   updateUserStatus: (id: string, status: string) =>
-    api.patch(`/admin/users/${id}/status`, { status }),
+    tryApiRequests([
+      () => api.patch(`/admin/users/${id}/status`, { status }),
+      () => api.patch(`/admin/users/${id}`, { status }),
+      () => api.put(`/admin/users/${id}`, { status }),
+    ]),
+  updateUserPremium: (
+    id: string,
+    data: { enabled: boolean; startDate?: string | null; expiryDate?: string | null; plan?: string }
+  ) => {
+    const resolvedPlan = data.plan || (data.enabled ? 'premium' : 'free')
+    const payload = {
+      enabled: data.enabled,
+      isPremium: data.enabled,
+      premiumEnabled: data.enabled,
+      plan: resolvedPlan,
+      startDate: data.startDate ?? null,
+      expiryDate: data.expiryDate ?? null,
+      premiumStartDate: data.startDate ?? null,
+      premiumExpiryDate: data.expiryDate ?? null,
+    }
+
+    return tryApiRequests([
+      () => api.patch(`/admin/users/${id}/premium`, payload),
+      () => api.put(`/admin/users/${id}/premium`, payload),
+      () => api.patch(`/admin/users/${id}/subscription`, payload),
+      () => api.patch(`/admin/subscriptions/users/${id}`, payload),
+      () => api.patch(`/admin/users/${id}`, payload),
+      () => api.put(`/admin/users/${id}`, payload),
+    ])
+  },
   deleteUser: (id: string) => api.delete(`/admin/users/${id}`),
 
   // Document Verification
@@ -195,8 +224,36 @@ export const adminApi = {
     tryApiRequests([
       () => api.patch(`/admin/users/${userId}/selfie-verification`, { approved }),
       () => api.patch(`/admin/users/${userId}/verify-selfie`, { approved }),
-      () => api.patch(`/admin/users/${userId}`, { selfieVerified: approved }),
-      () => api.put(`/admin/users/${userId}`, { selfieVerified: approved }),
+      () => api.patch(`/admin/users/${userId}`, {
+        selfieVerified: approved,
+        selfieVerificationStatus: approved ? 'approved' : 'rejected',
+      }),
+      () => api.put(`/admin/users/${userId}`, {
+        selfieVerified: approved,
+        selfieVerificationStatus: approved ? 'approved' : 'rejected',
+      }),
+    ]),
+  verifyMaritalStatus: (userId: string, approved: boolean, rejectionReason?: string) =>
+    tryApiRequests([
+      () => api.patch(`/admin/users/${userId}/marital-verification`, { approved, rejectionReason }),
+      () => api.patch(`/admin/users/${userId}/verify-marital-status`, { approved, rejectionReason }),
+      () => api.patch(`/admin/users/${userId}/document-verification`, { approved, rejectionReason }),
+      () => api.patch(`/admin/users/${userId}`, {
+        maritalVerified: approved,
+        maritalStatusVerified: approved,
+        documentVerified: approved,
+        maritalVerificationStatus: approved ? 'approved' : 'rejected',
+        documentVerificationStatus: approved ? 'approved' : 'rejected',
+        documentRejectionReason: approved ? null : rejectionReason ?? null,
+      }),
+      () => api.put(`/admin/users/${userId}`, {
+        maritalVerified: approved,
+        maritalStatusVerified: approved,
+        documentVerified: approved,
+        maritalVerificationStatus: approved ? 'approved' : 'rejected',
+        documentVerificationStatus: approved ? 'approved' : 'rejected',
+        documentRejectionReason: approved ? null : rejectionReason ?? null,
+      }),
     ]),
   autoApproveDocuments: () => api.post('/admin/documents/auto-approve'),
 

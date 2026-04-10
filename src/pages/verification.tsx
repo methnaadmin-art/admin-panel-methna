@@ -29,7 +29,6 @@ import {
   Loader2,
   ChevronLeft,
   ChevronRight,
-  AlertTriangle,
   Shield,
   ExternalLink,
 } from 'lucide-react'
@@ -52,6 +51,7 @@ interface PendingVerificationUser {
   email: string
   selfieUrl: string
   selfieVerified: boolean
+  verificationStatus: 'pending' | 'approved' | 'rejected'
   status: string
   createdAt: string
 }
@@ -64,6 +64,7 @@ interface PendingDocUser {
   documentUrl: string
   documentType: string
   documentVerified: boolean
+  verificationStatus: 'pending' | 'approved' | 'rejected'
   status: string
   createdAt: string
 }
@@ -89,6 +90,43 @@ const firstBoolean = (...values: unknown[]) => {
     }
   }
   return false
+}
+
+const normalizeVerificationStatus = (
+  statusCandidates: unknown[],
+  booleanCandidates: unknown[],
+  rejectionCandidates: unknown[] = []
+): 'pending' | 'approved' | 'rejected' => {
+  for (const statusCandidate of statusCandidates) {
+    if (typeof statusCandidate !== 'string') {
+      continue
+    }
+
+    const normalized = statusCandidate.toLowerCase().trim()
+    if (!normalized) {
+      continue
+    }
+
+    if (normalized.includes('approved') || normalized.includes('verified') || normalized.includes('accepted')) {
+      return 'approved'
+    }
+
+    if (normalized.includes('rejected') || normalized.includes('declined') || normalized.includes('denied')) {
+      return 'rejected'
+    }
+  }
+
+  for (const rejectionCandidate of rejectionCandidates) {
+    if (typeof rejectionCandidate === 'string' && rejectionCandidate.trim().length > 0) {
+      return 'rejected'
+    }
+  }
+
+  if (booleanCandidates.some((candidate) => candidate === true)) {
+    return 'approved'
+  }
+
+  return 'pending'
 }
 
 const extractItems = (payload: unknown): ApiRecord[] => {
@@ -150,6 +188,23 @@ const normalizePendingSelfieUser = (record: ApiRecord): PendingVerificationUser 
     email: firstString(record.email, nestedUser?.email),
     selfieUrl,
     selfieVerified: firstBoolean(record.selfieVerified, nestedUser?.selfieVerified, verification?.selfieVerified),
+    verificationStatus: normalizeVerificationStatus(
+      [
+        record.selfieVerificationStatus,
+        record.selfieStatus,
+        verification?.selfieVerificationStatus,
+        verification?.selfieStatus,
+      ],
+      [
+        record.selfieVerified,
+        nestedUser?.selfieVerified,
+        verification?.selfieVerified,
+      ],
+      [
+        record.selfieRejectionReason,
+        verification?.selfieRejectionReason,
+      ]
+    ),
     status: firstString(record.status, nestedUser?.status) || 'pending_verification',
     createdAt: firstString(record.createdAt, record.updatedAt, nestedUser?.createdAt) || new Date().toISOString(),
   }
@@ -199,9 +254,42 @@ const normalizePendingDocUser = (record: ApiRecord): PendingDocUser | null => {
       verification?.documentVerified,
       nestedUser?.documentVerified,
     ),
+    verificationStatus: normalizeVerificationStatus(
+      [
+        record.maritalVerificationStatus,
+        record.maritalStatusVerificationStatus,
+        record.documentVerificationStatus,
+        verification?.maritalVerificationStatus,
+        verification?.documentVerificationStatus,
+      ],
+      [
+        record.maritalVerified,
+        record.maritalStatusVerified,
+        record.documentVerified,
+        nestedUser?.maritalVerified,
+        nestedUser?.maritalStatusVerified,
+        nestedUser?.documentVerified,
+      ],
+      [
+        record.maritalRejectionReason,
+        record.documentRejectionReason,
+      ]
+    ),
     status: firstString(record.status, nestedUser?.status) || 'pending_verification',
     createdAt: firstString(record.createdAt, record.updatedAt, nestedUser?.createdAt) || new Date().toISOString(),
   }
+}
+
+const verificationStatusBadge = (status: 'pending' | 'approved' | 'rejected') => {
+  if (status === 'approved') {
+    return <Badge variant="success" className="text-[10px]">approved</Badge>
+  }
+
+  if (status === 'rejected') {
+    return <Badge variant="destructive" className="text-[10px]">rejected</Badge>
+  }
+
+  return <Badge variant="warning" className="text-[10px]">pending</Badge>
 }
 
 export default function VerificationPage() {
@@ -236,7 +324,6 @@ export default function VerificationPage() {
   const [pendingDocs, setPendingDocs] = useState<PendingDocUser[]>([])
   const [pendingDocsLoading, setPendingDocsLoading] = useState(false)
   const [docVerifyLoading, setDocVerifyLoading] = useState('')
-  const [reverifyDialog, setReverifyDialog] = useState<{ open: boolean; userId: string; reason: string }>({ open: false, userId: '', reason: '' })
 
   const fetchPhotos = async () => {
     setLoading(true)
@@ -256,12 +343,11 @@ export default function VerificationPage() {
   const fetchDocUsers = async () => {
     setDocLoading(true)
     try {
-      const { data } = await adminApi.getUsers(1, 100, 'pending_verification')
+      const { data } = await adminApi.getUsers(1, 100)
       const users = uniqueById(
         extractItems(data)
           .map(normalizePendingSelfieUser)
           .filter((user): user is PendingVerificationUser => user !== null)
-          .filter((user) => !user.selfieVerified)
       )
       setDocUsers(users)
     } catch (err) {
@@ -276,7 +362,7 @@ export default function VerificationPage() {
     try {
       const [pendingDocsResult, usersResult] = await Promise.allSettled([
         adminApi.getPendingDocuments(),
-        adminApi.getUsers(1, 100, 'pending_verification'),
+        adminApi.getUsers(1, 100),
       ])
 
       const normalizedDocs = [
@@ -292,7 +378,7 @@ export default function VerificationPage() {
           .filter((doc): doc is PendingDocUser => Boolean(doc))
       })
 
-      setPendingDocs(uniqueById(normalizedDocs.filter((doc) => !doc.documentVerified)))
+      setPendingDocs(uniqueById(normalizedDocs))
     } catch (err) {
       console.error(err)
     } finally {
@@ -328,12 +414,12 @@ export default function VerificationPage() {
   const handleDocVerify = async (userId: string, approved: boolean, rejectionReason?: string) => {
     setDocVerifyLoading(userId)
     try {
-      await adminApi.verifyDocument(userId, approved, rejectionReason)
+      await adminApi.verifyMaritalStatus(userId, approved, rejectionReason)
       toast({
-        title: approved ? t('verification.approved') : t('verification.requestReverify'),
+        title: approved ? t('verification.approved') : t('verification.rejected'),
         description: approved
           ? t('verification.docApprovedDesc')
-          : t('verification.reuploadRequested'),
+          : t('verification.docRejectedDesc'),
         variant: approved ? 'success' : 'warning',
       })
       fetchPendingDocs()
@@ -341,7 +427,6 @@ export default function VerificationPage() {
       toast({ title: t('common.error'), description: t('verification.moderationFailed'), variant: 'error' })
     } finally {
       setDocVerifyLoading('')
-      setReverifyDialog({ open: false, userId: '', reason: '' })
     }
   }
 
@@ -530,13 +615,13 @@ export default function VerificationPage() {
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList className="flex-wrap">
           <TabsTrigger value="idDocs" className="gap-1.5">
-            <FileText className="h-4 w-4" /> {t('verification.idDocuments')}
+            <FileText className="h-4 w-4" /> Marital Status Verification
             {pendingDocs.length > 0 && (
               <Badge variant="destructive" className="ml-1 h-5 px-1.5 text-[10px]">{pendingDocs.length}</Badge>
             )}
           </TabsTrigger>
           <TabsTrigger value="documents" className="gap-1.5">
-            <CreditCard className="h-4 w-4" /> {t('verification.selfie')}
+            <CreditCard className="h-4 w-4" /> Selfie Verification
             {docUsers.length > 0 && (
               <Badge variant="destructive" className="ml-1 h-5 px-1.5 text-[10px]">{docUsers.length}</Badge>
             )}
@@ -561,7 +646,7 @@ export default function VerificationPage() {
           </TabsTrigger>
         </TabsList>
 
-        {/* ID Documents Tab - Passport / National ID */}
+        {/* Marital Verification Tab */}
         <TabsContent value="idDocs">
           <div className="space-y-4">
             {pendingDocs.length > 0 && (
@@ -572,8 +657,8 @@ export default function VerificationPage() {
                   </div>
                   <div className="flex items-center gap-3">
                     <div>
-                      <p className="text-sm font-semibold text-amber-800">{pendingDocs.length} {t('verification.pendingDocuments')}</p>
-                      <p className="text-xs text-amber-700">{t('verification.manualReviewOnly')}</p>
+                      <p className="text-sm font-semibold text-amber-800">{pendingDocs.length} user records with marital document status</p>
+                      <p className="text-xs text-amber-700">Review and update to approved or rejected.</p>
                     </div>
                   </div>
                 </CardContent>
@@ -608,9 +693,7 @@ export default function VerificationPage() {
                           <Eye className="h-8 w-8 text-white opacity-0 group-hover:opacity-80 transition-opacity" />
                         </div>
                         <div className="absolute top-2 left-2 flex gap-1">
-                          <Badge variant="warning" className="text-[10px] gap-1">
-                            <Clock className="h-3 w-3" /> {t('verification.pendingReview')}
-                          </Badge>
+                          {verificationStatusBadge(u.verificationStatus)}
                           {u.documentType && (
                             <Badge className="bg-blue-500 text-white text-[10px]">{u.documentType.replace('_', ' ')}</Badge>
                           )}
@@ -642,6 +725,8 @@ export default function VerificationPage() {
                           <FileText className="h-3.5 w-3.5" />
                           <span>{u.documentType ? u.documentType.replace('_', ' ') : t('verification.document')}</span>
                           <span className="mx-1">&middot;</span>
+                          <span className="capitalize">{u.verificationStatus}</span>
+                          <span className="mx-1">&middot;</span>
                           <span>{new Date(u.createdAt).toLocaleDateString()}</span>
                         </div>
 
@@ -661,17 +746,17 @@ export default function VerificationPage() {
                           </Button>
                           <Button
                             size="sm"
-                            variant="outline"
-                            className="flex-1 gap-1.5 border-amber-300 text-amber-700 hover:bg-amber-50 hover:text-amber-800"
+                            variant="destructive"
+                            className="flex-1 gap-1.5"
                             disabled={docVerifyLoading === u.id}
-                            onClick={() => setReverifyDialog({ open: true, userId: u.id, reason: '' })}
+                            onClick={() => handleDocVerify(u.id, false, 'Rejected by admin')}
                           >
                             {docVerifyLoading === u.id ? (
                               <Loader2 className="h-3.5 w-3.5 animate-spin" />
                             ) : (
-                              <AlertTriangle className="h-3.5 w-3.5" />
+                              <XCircle className="h-3.5 w-3.5" />
                             )}
-                            {t('verification.requestReverify')}
+                            {t('verification.reject')}
                           </Button>
                         </div>
                       </div>
@@ -713,9 +798,7 @@ export default function VerificationPage() {
                         <Eye className="h-8 w-8 text-white opacity-0 group-hover:opacity-80 transition-opacity" />
                       </div>
                       <div className="absolute top-2 left-2">
-                        <Badge variant="warning" className="text-[10px] gap-1">
-                          <Clock className="h-3 w-3" /> {t('verification.pendingReview')}
-                        </Badge>
+                        {verificationStatusBadge(u.verificationStatus)}
                       </div>
                     </div>
 
@@ -743,6 +826,8 @@ export default function VerificationPage() {
                       <div className="flex items-center gap-2 text-xs text-muted-foreground">
                         <Shield className="h-3.5 w-3.5" />
                         <span>{t('verification.selfie')}</span>
+                        <span className="mx-1">&middot;</span>
+                        <span className="capitalize">{u.verificationStatus}</span>
                         <span className="mx-1">&middot;</span>
                         <span>{new Date(u.createdAt).toLocaleDateString()}</span>
                       </div>
@@ -879,38 +964,6 @@ export default function VerificationPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Document Reverify Dialog */}
-      <Dialog open={reverifyDialog.open} onOpenChange={(open) => setReverifyDialog({ ...reverifyDialog, open })}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{t('verification.reverifyDocument')}</DialogTitle>
-            <DialogDescription>{t('verification.reverifyDocDesc')}</DialogDescription>
-          </DialogHeader>
-          <div>
-            <label className="text-sm font-medium">{t('verification.rejectionReason')}</label>
-            <Textarea
-              placeholder={t('verification.rejectionReasonPlaceholder')}
-              value={reverifyDialog.reason}
-              onChange={(e) => setReverifyDialog({ ...reverifyDialog, reason: e.target.value })}
-              className="mt-1.5"
-            />
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setReverifyDialog({ open: false, userId: '', reason: '' })}>
-              {t('common.cancel')}
-            </Button>
-            <Button
-              variant="outline"
-              className="border-amber-300 text-amber-700 hover:bg-amber-50 hover:text-amber-800"
-              onClick={() => handleDocVerify(reverifyDialog.userId, false, reverifyDialog.reason.trim())}
-              disabled={docVerifyLoading === reverifyDialog.userId || reverifyDialog.reason.trim().length < 8}
-            >
-              {docVerifyLoading === reverifyDialog.userId ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <AlertTriangle className="h-4 w-4 mr-1" />}
-              {t('verification.requestReverify')}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   )
 }

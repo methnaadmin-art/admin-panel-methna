@@ -17,6 +17,8 @@ import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Loader2, Search, Eye, MapPin, ChevronLeft, ChevronRight } from 'lucide-react'
 
 type SearchResultUser = Record<string, any>
+type VerificationFilter = 'all' | 'pending' | 'approved' | 'rejected'
+type PremiumFilter = 'all' | 'premium' | 'not_premium' | 'expired'
 
 const isRecord = (value: unknown): value is SearchResultUser =>
   typeof value === 'object' && value !== null
@@ -106,6 +108,122 @@ const userMatchesQuery = (user: SearchResultUser, query: string) => {
   return fields.some((field) => normalizeSearchText(field).includes(normalizedQuery))
 }
 
+const parseDate = (value: unknown) => {
+  if (typeof value !== 'string' || value.trim().length === 0) {
+    return null
+  }
+
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? null : date
+}
+
+const normalizeVerificationStatus = (statusCandidates: unknown[], boolCandidates: unknown[]): 'pending' | 'approved' | 'rejected' => {
+  for (const statusCandidate of statusCandidates) {
+    if (typeof statusCandidate !== 'string') {
+      continue
+    }
+
+    const normalized = statusCandidate.toLowerCase().trim()
+    if (!normalized) {
+      continue
+    }
+
+    if (normalized.includes('approved') || normalized.includes('verified')) {
+      return 'approved'
+    }
+
+    if (normalized.includes('rejected') || normalized.includes('denied') || normalized.includes('declined')) {
+      return 'rejected'
+    }
+  }
+
+  if (boolCandidates.some((candidate) => candidate === true)) {
+    return 'approved'
+  }
+
+  return 'pending'
+}
+
+const getSelfieStatus = (user: SearchResultUser) =>
+  normalizeVerificationStatus(
+    [
+      user.selfieVerificationStatus,
+      user.selfieStatus,
+      user.verification?.selfieStatus,
+    ],
+    [
+      user.selfieVerified,
+      user.verification?.selfieVerified,
+    ]
+  )
+
+const getMaritalStatus = (user: SearchResultUser) =>
+  normalizeVerificationStatus(
+    [
+      user.maritalVerificationStatus,
+      user.documentVerificationStatus,
+      user.verification?.maritalStatus,
+      user.verification?.documentStatus,
+    ],
+    [
+      user.maritalStatusVerified,
+      user.documentVerified,
+      user.verification?.maritalVerified,
+      user.verification?.documentVerified,
+    ]
+  )
+
+const getPremiumSnapshot = (user: SearchResultUser) => {
+  const plan = normalizeSearchText(user.subscription?.plan || user.plan || user.currentPlan)
+  const status = normalizeSearchText(user.subscription?.status || user.subscriptionStatus)
+  const isPremium = user.isPremium === true || user.premium === true || user.premiumEnabled === true || plan === 'premium' || plan === 'gold'
+
+  const expiryCandidate = user.subscription?.endDate || user.subscription?.expiresAt || user.premiumExpiryDate || user.premiumExpiresAt
+  const expiryDate = parseDate(expiryCandidate)
+  const expired = status === 'expired' || (expiryDate ? expiryDate.getTime() < Date.now() : false)
+
+  return { isPremium, expired }
+}
+
+const userMatchesAdvancedFilters = (
+  user: SearchResultUser,
+  premiumFilter: PremiumFilter,
+  verificationFilter: VerificationFilter
+) => {
+  const premium = getPremiumSnapshot(user)
+
+  if (premiumFilter === 'premium' && (!premium.isPremium || premium.expired)) {
+    return false
+  }
+
+  if (premiumFilter === 'not_premium' && premium.isPremium) {
+    return false
+  }
+
+  if (premiumFilter === 'expired' && !premium.expired) {
+    return false
+  }
+
+  if (verificationFilter !== 'all') {
+    const selfieStatus = getSelfieStatus(user)
+    const maritalStatus = getMaritalStatus(user)
+
+    if (verificationFilter === 'approved' && !(selfieStatus === 'approved' && maritalStatus === 'approved')) {
+      return false
+    }
+
+    if (verificationFilter === 'rejected' && !(selfieStatus === 'rejected' || maritalStatus === 'rejected')) {
+      return false
+    }
+
+    if (verificationFilter === 'pending' && !(selfieStatus === 'pending' || maritalStatus === 'pending')) {
+      return false
+    }
+  }
+
+  return true
+}
+
 const extractTotal = (payload: unknown, fallback: number): number => {
   if (!isRecord(payload)) {
     return fallback
@@ -146,6 +264,8 @@ export default function SearchUsersPage() {
   // Filters
   const [statusFilter, setStatusFilter] = useState<string>('all')
   const [roleFilter, setRoleFilter] = useState<string>('all')
+  const [premiumFilter, setPremiumFilter] = useState<PremiumFilter>('all')
+  const [verificationFilter, setVerificationFilter] = useState<VerificationFilter>('all')
   const [page, setPage] = useState(1)
 
   // Sync with header search bar query (?q=...)
@@ -171,8 +291,8 @@ export default function SearchUsersPage() {
 
   // Perform search when query from URL, filters, or page changes
   useEffect(() => {
-    performSearch(urlQuery, statusFilter, roleFilter)
-  }, [urlQuery, page, statusFilter, roleFilter])
+    performSearch(urlQuery, statusFilter, roleFilter, premiumFilter, verificationFilter)
+  }, [urlQuery, page, statusFilter, roleFilter, premiumFilter, verificationFilter])
 
   const handleSearch = () => {
     const nextQuery = searchQuery.trim()
@@ -180,7 +300,7 @@ export default function SearchUsersPage() {
 
     // If nothing changed, still allow explicit retry while on same page.
     if (nextQuery === urlQuery && page === 1) {
-      performSearch(nextQuery, statusFilter, roleFilter)
+      performSearch(nextQuery, statusFilter, roleFilter, premiumFilter, verificationFilter)
       return
     }
 
@@ -198,7 +318,29 @@ export default function SearchUsersPage() {
     setPage(1)
   }
 
-  const fetchFallbackMatches = async (query: string, status?: string, role?: string) => {
+  const handlePremiumFilterChange = (value: PremiumFilter) => {
+    setPremiumFilter(value)
+    setPage(1)
+  }
+
+  const handleVerificationFilterChange = (value: VerificationFilter) => {
+    setVerificationFilter(value)
+    setPage(1)
+  }
+
+  const fetchFallbackMatches = async (
+    query: string,
+    status?: string,
+    role?: string,
+    premium?: PremiumFilter,
+    verification?: VerificationFilter
+  ) => {
+    const plan = premium === 'premium'
+      ? 'premium'
+      : premium === 'not_premium'
+        ? 'free'
+        : undefined
+
     const settledResponses = await Promise.allSettled(
       Array.from({ length: 5 }, (_, index) =>
         adminApi.getUsers(
@@ -207,6 +349,7 @@ export default function SearchUsersPage() {
           status !== 'all' ? status : undefined,
           undefined,
           role !== 'all' ? role : undefined,
+          plan,
         )
       )
     )
@@ -221,7 +364,10 @@ export default function SearchUsersPage() {
       })
     )
 
-    const filteredPool = fallbackPool.filter((user) => userMatchesQuery(user, query))
+    const filteredPool = fallbackPool.filter((user) =>
+      userMatchesQuery(user, query) &&
+      userMatchesAdvancedFilters(user, premium || 'all', verification || 'all')
+    )
     const start = (page - 1) * 20
     return {
       results: filteredPool.slice(start, start + 20),
@@ -229,11 +375,23 @@ export default function SearchUsersPage() {
     }
   }
 
-  const performSearch = async (query?: string, status?: string, role?: string) => {
+  const performSearch = async (
+    query?: string,
+    status?: string,
+    role?: string,
+    premium?: PremiumFilter,
+    verification?: VerificationFilter
+  ) => {
     const requestId = ++requestIdRef.current
     setLoading(true)
     try {
       const trimmedQuery = query?.trim()
+      const plan = premium === 'premium'
+        ? 'premium'
+        : premium === 'not_premium'
+          ? 'free'
+          : undefined
+
       const userListRequest = () =>
         adminApi.getUsers(
           page,
@@ -241,6 +399,7 @@ export default function SearchUsersPage() {
           status !== 'all' ? status : undefined,
           trimmedQuery || undefined,
           role !== 'all' ? role : undefined,
+          plan,
         )
 
       let payload: unknown
@@ -259,7 +418,10 @@ export default function SearchUsersPage() {
           payload = data
 
           const searchResults = extractResults(payload).map(normalizeSearchUser)
-          const filteredSearchResults = searchResults.filter((user) => userMatchesQuery(user, trimmedQuery))
+          const filteredSearchResults = searchResults.filter((user) =>
+            userMatchesQuery(user, trimmedQuery) &&
+            userMatchesAdvancedFilters(user, premium || 'all', verification || 'all')
+          )
           const searchTotal = extractTotal(payload, filteredSearchResults.length)
 
           if (requestId !== requestIdRef.current) {
@@ -279,25 +441,28 @@ export default function SearchUsersPage() {
       const { data } = await userListRequest()
       payload = data
       const list = extractResults(payload).map(normalizeSearchUser)
+      const listAfterAdvancedFilters = list.filter((user) =>
+        userMatchesAdvancedFilters(user, premium || 'all', verification || 'all')
+      )
       if (requestId !== requestIdRef.current) {
         return
       }
 
       if (!trimmedQuery) {
-        setResults(list)
-        setTotal(extractTotal(payload, list.length))
+        setResults(listAfterAdvancedFilters)
+        setTotal(extractTotal(payload, listAfterAdvancedFilters.length))
         return
       }
 
-      const filteredList = list.filter((user) => userMatchesQuery(user, trimmedQuery))
+      const filteredList = listAfterAdvancedFilters.filter((user) => userMatchesQuery(user, trimmedQuery))
       const payloadTotal = extractTotal(payload, filteredList.length)
-      if (filteredList.length > 0 && filteredList.length === list.length) {
+      if (filteredList.length > 0 && filteredList.length === listAfterAdvancedFilters.length) {
         setResults(filteredList)
         setTotal(payloadTotal)
         return
       }
 
-      const fallbackMatches = await fetchFallbackMatches(trimmedQuery, status, role)
+      const fallbackMatches = await fetchFallbackMatches(trimmedQuery, status, role, premium, verification)
       if (requestId !== requestIdRef.current) {
         return
       }
@@ -334,7 +499,7 @@ export default function SearchUsersPage() {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-7">
             <div className="lg:col-span-2">
               <label className="text-xs font-medium text-muted-foreground">Name or Email</label>
               <Input
@@ -370,6 +535,34 @@ export default function SearchUsersPage() {
                   <SelectItem value="user">{t('users.user')}</SelectItem>
                   <SelectItem value="moderator">{t('users.moderator')}</SelectItem>
                   <SelectItem value="admin">{t('users.admin')}</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <label className="text-xs font-medium text-muted-foreground">Premium</label>
+              <Select value={premiumFilter} onValueChange={(value) => handlePremiumFilterChange(value as PremiumFilter)}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Premium</SelectItem>
+                  <SelectItem value="premium">Premium Active</SelectItem>
+                  <SelectItem value="not_premium">Not Premium</SelectItem>
+                  <SelectItem value="expired">Expired Premium</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <label className="text-xs font-medium text-muted-foreground">Verification</label>
+              <Select value={verificationFilter} onValueChange={(value) => handleVerificationFilterChange(value as VerificationFilter)}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All</SelectItem>
+                  <SelectItem value="pending">Pending</SelectItem>
+                  <SelectItem value="approved">Approved</SelectItem>
+                  <SelectItem value="rejected">Rejected</SelectItem>
                 </SelectContent>
               </Select>
             </div>

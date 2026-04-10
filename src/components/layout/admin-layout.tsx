@@ -4,7 +4,7 @@ import { Sidebar } from './sidebar'
 import { Header } from './header'
 
 export function AdminLayout() {
-  const { isAuthenticated, isLoading } = useAuth()
+  const { isAuthenticated, isAdmin, isLoading } = useAuth()
 
   if (isLoading) {
     return (
@@ -15,6 +15,10 @@ export function AdminLayout() {
   }
 
   if (!isAuthenticated) {
+    return <Navigate to="/login" replace />
+  }
+
+  if (!isAdmin) {
     return <Navigate to="/login" replace />
   }
 

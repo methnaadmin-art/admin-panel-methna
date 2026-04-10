@@ -134,6 +134,7 @@ export default function SendNotificationsPage() {
                 <SelectItem value="message">{t('sendNotifications.message')}</SelectItem>
                 <SelectItem value="like">{t('sendNotifications.like')}</SelectItem>
                 <SelectItem value="subscription">{t('sendNotifications.subscription')}</SelectItem>
+                <SelectItem value="ticket">Ticket</SelectItem>
               </SelectContent>
             </Select>
           </div>
