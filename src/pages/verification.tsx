@@ -256,9 +256,11 @@ const normalizePendingSelfieUser = (record: ApiRecord): PendingVerificationUser 
   const nestedUser = isRecord(record.user) ? record.user : null
   const verification = isRecord(record.verification) ? record.verification : null
   const selfie = isRecord(record.selfie) ? record.selfie : null
+  const selfieSub = isRecord(verification?.selfie) ? verification!.selfie : null
 
   const id = firstString(record.userId, nestedUser?.id, record.id)
   const selfieUrl = firstString(
+    selfieSub?.url,
     record.selfieUrl,
     selfie?.url,
     verification?.selfieUrl,
@@ -279,6 +281,7 @@ const normalizePendingSelfieUser = (record: ApiRecord): PendingVerificationUser 
     selfieVerified: firstBoolean(record.selfieVerified, nestedUser?.selfieVerified, verification?.selfieVerified),
     verificationStatus: normalizeVerificationStatus(
       [
+        selfieSub?.status,
         record.selfieVerificationStatus,
         record.selfieStatus,
         verification?.selfieVerificationStatus,
@@ -290,12 +293,13 @@ const normalizePendingSelfieUser = (record: ApiRecord): PendingVerificationUser 
         verification?.selfieVerified,
       ],
       [
+        selfieSub?.rejectionReason,
         record.selfieRejectionReason,
         verification?.selfieRejectionReason,
       ]
     ),
     status: firstString(record.status, nestedUser?.status) || 'pending_verification',
-    createdAt: firstString(record.createdAt, record.updatedAt, nestedUser?.createdAt) || new Date().toISOString(),
+    createdAt: firstString(selfieSub?.submittedAt, record.createdAt, record.updatedAt, nestedUser?.createdAt) || new Date().toISOString(),
   }
 }
 
@@ -303,9 +307,11 @@ const normalizePendingDocUser = (record: ApiRecord): PendingDocUser | null => {
   const nestedUser = isRecord(record.user) ? record.user : null
   const verification = isRecord(record.verification) ? record.verification : null
   const document = isRecord(record.document) ? record.document : null
+  const maritalSub = isRecord(verification?.marital_status) ? verification!.marital_status : null
 
   const id = firstString(record.userId, nestedUser?.id, record.id)
   const documentUrl = firstString(
+    maritalSub?.url,
     record.documentUrl,
     record.identityDocumentUrl,
     record.idDocumentUrl,
@@ -346,6 +352,7 @@ const normalizePendingDocUser = (record: ApiRecord): PendingDocUser | null => {
     ),
     verificationStatus: normalizeVerificationStatus(
       [
+        maritalSub?.status,
         record.maritalVerificationStatus,
         record.maritalStatusVerificationStatus,
         record.documentVerificationStatus,
@@ -361,12 +368,13 @@ const normalizePendingDocUser = (record: ApiRecord): PendingDocUser | null => {
         nestedUser?.documentVerified,
       ],
       [
+        maritalSub?.rejectionReason,
         record.maritalRejectionReason,
         record.documentRejectionReason,
       ]
     ),
     status: firstString(record.status, nestedUser?.status) || 'pending_verification',
-    createdAt: firstString(record.createdAt, record.updatedAt, nestedUser?.createdAt) || new Date().toISOString(),
+    createdAt: firstString(maritalSub?.submittedAt, record.createdAt, record.updatedAt, nestedUser?.createdAt) || new Date().toISOString(),
   }
 }
 

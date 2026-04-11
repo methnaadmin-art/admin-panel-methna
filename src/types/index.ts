@@ -12,6 +12,7 @@ export enum UserStatus {
   BANNED = 'banned',
   DEACTIVATED = 'deactivated',
   PENDING_VERIFICATION = 'pending_verification',
+  REJECTED = 'rejected',
 }
 
 export enum Gender {
@@ -83,6 +84,13 @@ export interface User {
   createdAt: string
   updatedAt: string
   deletedAt?: string
+  isPremium?: boolean
+  premiumStartDate?: string
+  premiumExpiryDate?: string
+  verification?: {
+    selfie?: { status: string; url?: string; submittedAt?: string; reviewedAt?: string; rejectionReason?: string }
+    marital_status?: { status: string; url?: string; submittedAt?: string; reviewedAt?: string; rejectionReason?: string }
+  }
 }
 
 export interface Profile {
@@ -338,6 +346,13 @@ export interface UserDetail {
   profile?: Profile
   photos: Photo[]
   subscription?: Subscription
+  premium?: {
+    isPremium: boolean
+    startDate?: string
+    expiryDate?: string
+    remainingDays: number
+    isExpired: boolean
+  }
 }
 
 export interface AuthResponse {

@@ -98,13 +98,13 @@ export default function UserDetailPage() {
   // Normalize response: handle both { user, profile, photos, subscription } and flat user object
   const normalizeDetail = (data: any): UserDetail | null => {
     if (!data) return null
-    // Standard shape: { user, profile, photos, subscription }
+    // Standard shape: { user, profile, photos, subscription, premium }
     if (data.user && typeof data.user === 'object' && data.user.id) {
       return data as UserDetail
     }
     // Flat shape: the data IS the user object directly
     if (data.id && data.email) {
-      return { user: data, profile: data.profile || null, photos: data.photos || [], subscription: data.subscription || null }
+      return { user: data, profile: data.profile || null, photos: data.photos || [], subscription: data.subscription || null, premium: data.premium || null }
     }
     // Nested: { data: { user, ... } } (double-wrapped)
     if (data.data && typeof data.data === 'object') {
@@ -291,7 +291,7 @@ export default function UserDetailPage() {
     return <div className="text-center text-muted-foreground">{t('userDetail.notFound')}</div>
   }
 
-  const { user, profile, photos, subscription } = detail
+  const { user, profile, photos, subscription, premium } = detail
 
   return (
     <div className="space-y-6">
@@ -492,7 +492,7 @@ export default function UserDetailPage() {
                 </CardContent>
               </Card>
 
-              {/* Subscription */}
+              {/* Subscription & Premium */}
               <Card>
                 <CardHeader className="pb-3">
                   <CardTitle className="text-base flex items-center gap-2">
@@ -500,7 +500,25 @@ export default function UserDetailPage() {
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
-                  {subscription ? (
+                  {premium ? (
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2">
+                        <Badge className={premium.isPremium ? 'bg-amber-500 text-white' : ''}>{premium.isPremium ? 'PREMIUM' : 'FREE'}</Badge>
+                        {premium.isExpired && <Badge variant="destructive">Expired</Badge>}
+                      </div>
+                      {premium.startDate && <p className="text-xs text-muted-foreground">Started: {formatDate(premium.startDate)}</p>}
+                      {premium.expiryDate && <p className="text-xs text-muted-foreground">Expires: {formatDate(premium.expiryDate)}</p>}
+                      {premium.isPremium && (
+                        <p className="text-xs font-medium">
+                          {premium.remainingDays > 0
+                            ? `${premium.remainingDays} days remaining`
+                            : premium.remainingDays === 0
+                              ? 'Expires today'
+                              : `${Math.abs(premium.remainingDays)} days overdue`}
+                        </p>
+                      )}
+                    </div>
+                  ) : subscription ? (
                     <div className="space-y-2">
                       <div className="flex items-center gap-2">
                         <Badge className={subscription.plan === 'GOLD' || subscription.plan === ('gold' as any) ? 'bg-amber-500 text-white' : subscription.plan === 'PREMIUM' || subscription.plan === ('premium' as any) ? 'bg-purple-500 text-white' : ''}>
@@ -728,48 +746,154 @@ export default function UserDetailPage() {
                     <Badge variant="warning" className="gap-1"><Clock className="h-3 w-3" /> Pending</Badge>
                   )}
                 </div>
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <Camera className="h-4 w-4 text-muted-foreground" />
-                    <span className="text-sm">Selfie Verification</span>
-                  </div>
-                  {user.selfieVerified ? (
-                    <Badge variant="success" className="gap-1"><CheckCircle2 className="h-3 w-3" /> Verified</Badge>
-                  ) : (
-                    <Badge variant="warning" className="gap-1"><Clock className="h-3 w-3" /> Not Verified</Badge>
-                  )}
-                </div>
-                {user.selfieUrl && (
-                  <div className="border-t pt-3">
-                    <p className="text-xs text-muted-foreground mb-2">Selfie Image</p>
-                    <img src={user.selfieUrl} alt="Selfie" className="w-32 h-32 rounded-lg object-cover border" />
-                  </div>
-                )}
-                <div className="flex items-center justify-between border-t pt-3">
-                  <div className="flex items-center gap-2">
-                    <FileText className="h-4 w-4 text-muted-foreground" />
-                    <span className="text-sm">{t('verification.idDocuments')}</span>
-                  </div>
-                  {user.documentVerified ? (
-                    <Badge variant="success" className="gap-1"><CheckCircle2 className="h-3 w-3" /> {t('verification.approved')}</Badge>
-                  ) : user.documentUrl ? (
-                    <Badge variant="warning" className="gap-1"><Clock className="h-3 w-3" /> {t('verification.pendingReview')}</Badge>
-                  ) : (
-                    <Badge variant="outline" className="gap-1 text-muted-foreground">Not Uploaded</Badge>
-                  )}
-                </div>
-                {user.documentUrl && (
-                  <div className="border-t pt-3">
-                    <p className="text-xs text-muted-foreground mb-1">{user.documentType ? user.documentType.replace('_', ' ') : t('verification.document')}</p>
-                    <img src={user.documentUrl} alt="Document" className="w-40 h-28 rounded-lg object-cover border" />
-                    {user.documentRejectionReason && (
-                      <p className="text-xs text-red-500 mt-1">{t('verification.rejectionReason')}: {user.documentRejectionReason}</p>
-                    )}
-                    {user.documentVerifiedAt && (
-                      <p className="text-xs text-muted-foreground mt-1">Verified: {new Date(user.documentVerifiedAt).toLocaleDateString()}</p>
-                    )}
-                  </div>
-                )}
+
+                {/* Selfie Verification */}
+                {(() => {
+                  const selfieStatus = (user as any).verification?.selfie?.status || (user.selfieVerified ? 'approved' : 'not_submitted')
+                  const selfieUrl = (user as any).verification?.selfie?.url || user.selfieUrl
+                  const selfieRejection = (user as any).verification?.selfie?.rejectionReason
+                  const selfieReviewedAt = (user as any).verification?.selfie?.reviewedAt
+                  return (
+                    <>
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <Camera className="h-4 w-4 text-muted-foreground" />
+                          <span className="text-sm">Selfie Verification</span>
+                        </div>
+                        {selfieStatus === 'approved' ? (
+                          <Badge variant="success" className="gap-1"><CheckCircle2 className="h-3 w-3" /> Approved</Badge>
+                        ) : selfieStatus === 'rejected' ? (
+                          <Badge variant="destructive" className="gap-1"><XCircle className="h-3 w-3" /> Rejected</Badge>
+                        ) : selfieStatus === 'pending' ? (
+                          <Badge variant="warning" className="gap-1"><Clock className="h-3 w-3" /> Pending Review</Badge>
+                        ) : (
+                          <Badge variant="outline" className="gap-1 text-muted-foreground">Not Submitted</Badge>
+                        )}
+                      </div>
+                      {selfieUrl && (
+                        <div className="border-t pt-3">
+                          <p className="text-xs text-muted-foreground mb-2">Selfie Image</p>
+                          <img src={selfieUrl} alt="Selfie" className="w-32 h-32 rounded-lg object-cover border" />
+                          {selfieRejection && <p className="text-xs text-red-500 mt-1">Rejection: {selfieRejection}</p>}
+                          {selfieReviewedAt && <p className="text-xs text-muted-foreground mt-1">Reviewed: {new Date(selfieReviewedAt).toLocaleDateString()}</p>}
+                        </div>
+                      )}
+                      {selfieStatus === 'pending' && id && (
+                        <div className="flex gap-2 border-t pt-3">
+                          <Button
+                            size="sm"
+                            className="gap-1.5 bg-emerald-500 hover:bg-emerald-600 text-white"
+                            disabled={!!actionLoading}
+                            onClick={async () => {
+                              setActionLoading('selfie-approve')
+                              try {
+                                await adminApi.verifySelfie(id, true)
+                                await reload()
+                                toast({ title: 'Selfie Approved', variant: 'success' })
+                              } catch { toast({ title: 'Error', description: 'Failed to approve selfie', variant: 'error' }) }
+                              finally { setActionLoading('') }
+                            }}
+                          >
+                            {actionLoading === 'selfie-approve' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
+                            Approve Selfie
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="destructive"
+                            className="gap-1.5"
+                            disabled={!!actionLoading}
+                            onClick={async () => {
+                              setActionLoading('selfie-reject')
+                              try {
+                                await adminApi.verifySelfie(id, false)
+                                await reload()
+                                toast({ title: 'Selfie Rejected', variant: 'warning' })
+                              } catch { toast({ title: 'Error', description: 'Failed to reject selfie', variant: 'error' }) }
+                              finally { setActionLoading('') }
+                            }}
+                          >
+                            {actionLoading === 'selfie-reject' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <XCircle className="h-3.5 w-3.5" />}
+                            Reject Selfie
+                          </Button>
+                        </div>
+                      )}
+                    </>
+                  )
+                })()}
+
+                {/* Marital Status Verification */}
+                {(() => {
+                  const maritalStatus = (user as any).verification?.marital_status?.status || (user.documentVerified ? 'approved' : user.documentUrl ? 'pending' : 'not_submitted')
+                  const maritalUrl = (user as any).verification?.marital_status?.url || user.documentUrl
+                  const maritalRejection = (user as any).verification?.marital_status?.rejectionReason || user.documentRejectionReason
+                  const maritalReviewedAt = (user as any).verification?.marital_status?.reviewedAt || user.documentVerifiedAt
+                  return (
+                    <>
+                      <div className="flex items-center justify-between border-t pt-3">
+                        <div className="flex items-center gap-2">
+                          <FileText className="h-4 w-4 text-muted-foreground" />
+                          <span className="text-sm">Marital Status Verification</span>
+                        </div>
+                        {maritalStatus === 'approved' ? (
+                          <Badge variant="success" className="gap-1"><CheckCircle2 className="h-3 w-3" /> Approved</Badge>
+                        ) : maritalStatus === 'rejected' ? (
+                          <Badge variant="destructive" className="gap-1"><XCircle className="h-3 w-3" /> Rejected</Badge>
+                        ) : maritalStatus === 'pending' ? (
+                          <Badge variant="warning" className="gap-1"><Clock className="h-3 w-3" /> Pending Review</Badge>
+                        ) : (
+                          <Badge variant="outline" className="gap-1 text-muted-foreground">Not Submitted</Badge>
+                        )}
+                      </div>
+                      {maritalUrl && (
+                        <div className="border-t pt-3">
+                          <p className="text-xs text-muted-foreground mb-1">{user.documentType ? user.documentType.replace('_', ' ') : 'Marital Document'}</p>
+                          <img src={maritalUrl} alt="Document" className="w-40 h-28 rounded-lg object-cover border" />
+                          {maritalRejection && <p className="text-xs text-red-500 mt-1">Rejection: {maritalRejection}</p>}
+                          {maritalReviewedAt && <p className="text-xs text-muted-foreground mt-1">Reviewed: {new Date(maritalReviewedAt).toLocaleDateString()}</p>}
+                        </div>
+                      )}
+                      {maritalStatus === 'pending' && id && (
+                        <div className="flex gap-2 border-t pt-3">
+                          <Button
+                            size="sm"
+                            className="gap-1.5 bg-emerald-500 hover:bg-emerald-600 text-white"
+                            disabled={!!actionLoading}
+                            onClick={async () => {
+                              setActionLoading('marital-approve')
+                              try {
+                                await adminApi.verifyMaritalStatus(id, true)
+                                await reload()
+                                toast({ title: 'Marital Doc Approved', variant: 'success' })
+                              } catch { toast({ title: 'Error', description: 'Failed to approve', variant: 'error' }) }
+                              finally { setActionLoading('') }
+                            }}
+                          >
+                            {actionLoading === 'marital-approve' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
+                            Approve Document
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="destructive"
+                            className="gap-1.5"
+                            disabled={!!actionLoading}
+                            onClick={async () => {
+                              setActionLoading('marital-reject')
+                              try {
+                                await adminApi.verifyMaritalStatus(id, false, 'Rejected by admin review')
+                                await reload()
+                                toast({ title: 'Marital Doc Rejected', variant: 'warning' })
+                              } catch { toast({ title: 'Error', description: 'Failed to reject', variant: 'error' }) }
+                              finally { setActionLoading('') }
+                            }}
+                          >
+                            {actionLoading === 'marital-reject' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <XCircle className="h-3.5 w-3.5" />}
+                            Reject Document
+                          </Button>
+                        </div>
+                      )}
+                    </>
+                  )
+                })()}
               </CardContent>
             </Card>
 

@@ -251,9 +251,11 @@ const normalizeVerificationStatus = (
 
 const getSelfieStatus = (user: UserRecord): VerificationStatus => {
   const verification = isRecord(user.verification) ? user.verification : undefined
+  const selfieSub = isRecord(verification?.selfie) ? verification!.selfie : undefined
 
   return normalizeVerificationStatus(
     [
+      selfieSub?.status,
       user.selfieVerificationStatus,
       user.selfieStatus,
       verification?.selfieVerificationStatus,
@@ -265,6 +267,7 @@ const getSelfieStatus = (user: UserRecord): VerificationStatus => {
       verification?.selfieVerified,
     ],
     [
+      selfieSub?.rejectionReason,
       user.selfieRejectionReason,
       verification?.selfieRejectionReason,
     ]
@@ -273,9 +276,11 @@ const getSelfieStatus = (user: UserRecord): VerificationStatus => {
 
 const getMaritalStatus = (user: UserRecord): VerificationStatus => {
   const verification = isRecord(user.verification) ? user.verification : undefined
+  const maritalSub = isRecord(verification?.marital_status) ? verification!.marital_status : undefined
 
   return normalizeVerificationStatus(
     [
+      maritalSub?.status,
       user.maritalVerificationStatus,
       user.maritalStatusVerificationStatus,
       user.documentVerificationStatus,
@@ -293,6 +298,7 @@ const getMaritalStatus = (user: UserRecord): VerificationStatus => {
       verification?.documentVerified,
     ],
     [
+      maritalSub?.rejectionReason,
       user.maritalRejectionReason,
       user.documentRejectionReason,
       verification?.maritalRejectionReason,
