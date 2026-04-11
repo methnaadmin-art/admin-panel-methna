@@ -3,18 +3,72 @@ import { useTranslation } from 'react-i18next'
 import { adminApi } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle, CardFooter } from '@/components/ui/card'
-import { Loader2, Crown, CreditCard, TrendingUp, Star, Zap, Gift, Plus, Edit2, Trash2 } from 'lucide-react'
+import { Loader2, Crown, CreditCard, TrendingUp, Star, Zap, Gift, Plus, Edit2, Trash2, Eye, EyeOff } from 'lucide-react'
 import type { DashboardStats } from '@/types'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Switch } from '@/components/ui/switch'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 
-const ALL_FEATURES = [
-  'unlimited_likes', 'advanced_filters', 'see_who_liked', 'super_like',
-  'profile_boost', 'read_receipts', 'priority_matching', 'rewind',
-  'invisible_mode', 'compliment_credits', 'rematch', 'premium_badge',
-  'hide_ads', 'passport_mode', 'improved_visits'
-];
+// Boolean feature flags for entitlements editor
+const BOOLEAN_FEATURES = [
+  { key: 'unlimitedLikes', label: 'Unlimited Likes' },
+  { key: 'unlimitedRewinds', label: 'Unlimited Rewinds' },
+  { key: 'advancedFilters', label: 'Advanced Filters' },
+  { key: 'seeWhoLikesYou', label: 'See Who Likes You' },
+  { key: 'readReceipts', label: 'Read Receipts' },
+  { key: 'typingIndicators', label: 'Typing Indicators' },
+  { key: 'invisibleMode', label: 'Invisible Mode' },
+  { key: 'passportMode', label: 'Passport Mode' },
+  { key: 'premiumBadge', label: 'Premium Badge' },
+  { key: 'hideAds', label: 'Hide Ads' },
+  { key: 'rematch', label: 'Rematch' },
+  { key: 'videoChat', label: 'Video Chat' },
+  { key: 'superLike', label: 'Super Like' },
+  { key: 'profileBoostPriority', label: 'Profile Boost Priority' },
+  { key: 'priorityMatching', label: 'Priority Matching' },
+  { key: 'improvedVisits', label: 'Improved Visits' },
+]
+
+// Numeric limits for entitlements editor
+const NUMERIC_LIMITS = [
+  { key: 'dailyLikes', label: 'Daily Likes', defaultVal: 10 },
+  { key: 'dailyCompliments', label: 'Daily Compliments', defaultVal: 0 },
+  { key: 'monthlyRewinds', label: 'Monthly Rewinds', defaultVal: 2 },
+  { key: 'weeklyBoosts', label: 'Weekly Boosts', defaultVal: 0 },
+]
+
+const BILLING_CYCLES = [
+  { value: 'monthly', label: 'Monthly' },
+  { value: 'yearly', label: 'Yearly' },
+  { value: 'weekly', label: 'Weekly' },
+  { value: 'one_time', label: 'One Time' },
+]
+
+const defaultEntitlements = () => ({
+  dailyLikes: 10, dailyCompliments: 0, monthlyRewinds: 2, weeklyBoosts: 0,
+  unlimitedLikes: false, unlimitedRewinds: false, advancedFilters: false,
+  seeWhoLikesYou: false, readReceipts: false, typingIndicators: false,
+  invisibleMode: false, passportMode: false, premiumBadge: false,
+  hideAds: false, rematch: false, videoChat: false, superLike: false,
+  profileBoostPriority: false, priorityMatching: false, improvedVisits: false,
+})
+
+const defaultFormData = () => ({
+  code: '', name: '', description: '', price: 0, currency: 'usd',
+  billingCycle: 'monthly', stripePriceId: '', durationDays: 30,
+  isActive: true, isVisible: true, sortOrder: 0,
+  entitlements: defaultEntitlements(),
+  features: [],
+  dailyLikesLimit: 10, dailySuperLikesLimit: 0, dailyComplimentsLimit: 0,
+  monthlyRewindsLimit: 2, weeklyBoostsLimit: 0,
+})
 
 export default function MonetizationPage() {
   const { t } = useTranslation()
@@ -25,11 +79,7 @@ export default function MonetizationPage() {
   // Plan Edit State
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [editingPlan, setEditingPlan] = useState<any>(null)
-  const [formData, setFormData] = useState<any>({
-    name: '', price: 0, durationDays: 30, isActive: true, features: [],
-    dailyLikesLimit: 10, dailySuperLikesLimit: 0, dailyComplimentsLimit: 0,
-    monthlyRewindsLimit: 2, weeklyBoostsLimit: 0
-  })
+  const [formData, setFormData] = useState<any>(defaultFormData())
 
   const load = async () => {
     setLoading(true)
@@ -51,27 +101,36 @@ export default function MonetizationPage() {
 
   useEffect(() => { load() }, [])
 
-  const handleOpenModal = (plan = null) => {
+  const handleOpenModal = (plan: any = null) => {
     if (plan) {
       setEditingPlan(plan)
-      setFormData(plan)
+      // Merge existing entitlements with defaults for any missing keys
+      const ent = { ...defaultEntitlements(), ...(plan.entitlements || {}) }
+      setFormData({ ...plan, entitlements: ent })
     } else {
       setEditingPlan(null)
-      setFormData({
-        name: '', price: 0, durationDays: 30, isActive: true, features: [],
-        dailyLikesLimit: 10, dailySuperLikesLimit: 0, dailyComplimentsLimit: 0,
-        monthlyRewindsLimit: 2, weeklyBoostsLimit: 0
-      })
+      setFormData(defaultFormData())
     }
     setIsModalOpen(true)
   }
 
   const handleSavePlan = async () => {
     try {
+      // Sync entitlements → legacy columns for backward compat
+      const ent = formData.entitlements || {}
+      const payload = {
+        ...formData,
+        dailyLikesLimit: ent.dailyLikes ?? formData.dailyLikesLimit,
+        dailySuperLikesLimit: ent.dailySuperLikes ?? formData.dailySuperLikesLimit ?? 0,
+        dailyComplimentsLimit: ent.dailyCompliments ?? formData.dailyComplimentsLimit,
+        monthlyRewindsLimit: ent.monthlyRewinds ?? formData.monthlyRewindsLimit,
+        weeklyBoostsLimit: ent.weeklyBoosts ?? formData.weeklyBoostsLimit,
+      }
+
       if (editingPlan) {
-        await adminApi.updatePlan(editingPlan.id, formData)
+        await adminApi.updatePlan(editingPlan.id, payload)
       } else {
-        await adminApi.createPlan(formData)
+        await adminApi.createPlan(payload)
       }
       setIsModalOpen(false)
       load()
@@ -81,7 +140,7 @@ export default function MonetizationPage() {
   }
 
   const handleDeletePlan = async (id: string) => {
-    if (!window.confirm('Delete this plan?')) return
+    if (!window.confirm('Delete this plan? Active subscribers will cause it to be deactivated instead.')) return
     try {
       await adminApi.deletePlan(id)
       load()
@@ -90,12 +149,23 @@ export default function MonetizationPage() {
     }
   }
 
-  const toggleFeature = (feat: string) => {
+  const toggleEntitlement = (key: string) => {
     setFormData((prev: any) => ({
       ...prev,
-      features: prev.features.includes(feat) 
-        ? prev.features.filter((f: string) => f !== feat)
-        : [...prev.features, feat]
+      entitlements: {
+        ...prev.entitlements,
+        [key]: !prev.entitlements?.[key],
+      },
+    }))
+  }
+
+  const setEntitlementLimit = (key: string, value: number) => {
+    setFormData((prev: any) => ({
+      ...prev,
+      entitlements: {
+        ...prev.entitlements,
+        [key]: value,
+      },
     }))
   }
 
@@ -114,6 +184,16 @@ export default function MonetizationPage() {
     PREMIUM: 'bg-purple-100 text-purple-600',
     GOLD: 'bg-amber-100 text-amber-600',
     PLATINUM: 'bg-gray-800 text-gray-100',
+  }
+
+  const billingLabel = (cycle: string) => {
+    const found = BILLING_CYCLES.find(b => b.value === cycle)
+    return found?.label || cycle
+  }
+
+  const formatLimit = (val: number | undefined) => {
+    if (val === -1 || val === undefined) return '∞'
+    return val
   }
 
   return (
@@ -166,42 +246,51 @@ export default function MonetizationPage() {
         ) : (
           <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
             {plans.map((plan: any) => {
-              const planKey = (plan.name || '').toUpperCase()
+              const planKey = (plan.code || plan.name || '').toUpperCase()
               const Icon = planIcons[planKey] || Star
               const colorClass = planColors[planKey] || 'bg-gray-100 text-gray-600'
+              const ent = plan.entitlements || {}
 
               return (
                 <Card key={plan.id} className={`relative overflow-hidden ${!plan.isActive ? 'opacity-50 grayscale' : ''}`}>
+                  {!plan.isVisible && plan.isActive && (
+                    <div className="absolute top-2 right-2 text-muted-foreground"><EyeOff className="h-4 w-4" /></div>
+                  )}
                   <CardHeader className="pb-3 border-b">
                     <div className="flex items-center gap-3">
                       <div className={`rounded-lg p-2.5 ${colorClass}`}>
                         <Icon className="h-6 w-6" />
                       </div>
                       <div className="flex-1">
-                        <CardTitle className="text-lg uppercase">{plan.name}</CardTitle>
+                        <div className="flex items-center gap-2">
+                          <CardTitle className="text-lg">{plan.name}</CardTitle>
+                          <span className="text-xs bg-muted px-1.5 py-0.5 rounded font-mono">{plan.code}</span>
+                        </div>
                         <p className="text-2xl font-bold mt-1">
-                          ${plan.price}<span className="text-sm text-muted-foreground font-normal">/{plan.durationDays}d</span>
+                          {plan.currency?.toUpperCase() === 'USD' ? '$' : ''}{plan.price}
+                          <span className="text-sm text-muted-foreground font-normal">/{billingLabel(plan.billingCycle)}</span>
                         </p>
                       </div>
                     </div>
                   </CardHeader>
                   <CardContent className="pt-4 h-64 overflow-y-auto">
-                    <div className="text-xs text-muted-foreground mb-2 grid grid-cols-2 gap-1">
-                      <p>Likes: {plan.dailyLikesLimit === -1 ? 'Unlimited' : plan.dailyLikesLimit}/d</p>
-                      <p>Rewinds: {plan.monthlyRewindsLimit}/mo</p>
-                      <p>S-Likes: {plan.dailySuperLikesLimit}/d</p>
-                      <p>Boosts: {plan.weeklyBoostsLimit}/wk</p>
-                    </div>
-                    {plan.features && (
-                      <ul className="space-y-2 mt-4">
-                        {plan.features.map((feat: string, i: number) => (
-                          <li key={i} className="flex items-start gap-2 text-sm capitalize">
-                            <span className="text-emerald-500 mt-0.5">&#10003;</span>
-                            <span>{feat.replace(/_/g, ' ')}</span>
-                          </li>
-                        ))}
-                      </ul>
+                    {plan.stripePriceId && (
+                      <p className="text-xs text-muted-foreground mb-2 font-mono">Stripe: {plan.stripePriceId}</p>
                     )}
+                    <div className="text-xs text-muted-foreground mb-2 grid grid-cols-2 gap-1">
+                      <p>Likes: {formatLimit(ent.dailyLikes ?? plan.dailyLikesLimit)}/d</p>
+                      <p>Rewinds: {formatLimit(ent.monthlyRewinds ?? plan.monthlyRewindsLimit)}/mo</p>
+                      <p>Compliments: {formatLimit(ent.dailyCompliments ?? plan.dailyComplimentsLimit)}/d</p>
+                      <p>Boosts: {formatLimit(ent.weeklyBoosts ?? plan.weeklyBoostsLimit)}/wk</p>
+                    </div>
+                    {BOOLEAN_FEATURES.map(f => (
+                      ent[f.key] && (
+                        <div key={f.key} className="flex items-center gap-2 text-sm mt-1">
+                          <span className="text-emerald-500">&#10003;</span>
+                          <span>{f.label}</span>
+                        </div>
+                      )
+                    ))}
                   </CardContent>
                   <CardFooter className="flex justify-between bg-muted/20 border-t p-3">
                     <Button variant="ghost" size="sm" onClick={() => handleOpenModal(plan)} className="text-blue-500">
@@ -221,64 +310,100 @@ export default function MonetizationPage() {
       {/* Plan Edit Modal */}
       {isModalOpen && (
         <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
-          <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+          <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>{editingPlan ? 'Edit Plan' : 'Create New Plan'}</DialogTitle>
             </DialogHeader>
             <div className="grid gap-6 py-4 md:grid-cols-2">
+              {/* Left: Basic Info */}
               <div className="space-y-4">
                 <h3 className="font-semibold border-b pb-2">Basic Info</h3>
-                <div>
-                  <label className="text-sm font-medium">Plan Name</label>
-                  <Input value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} placeholder="e.g. PLATINUM" />
-                </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="text-sm font-medium">Price ($)</label>
-                    <Input type="number" value={formData.price} onChange={e => setFormData({...formData, price: Number(e.target.value)})} />
+                    <label className="text-sm font-medium">Code (machine)</label>
+                    <Input value={formData.code} onChange={e => setFormData({...formData, code: e.target.value.toLowerCase().replace(/\s+/g, '_')})} placeholder="e.g. premium" />
                   </div>
+                  <div>
+                    <label className="text-sm font-medium">Display Name</label>
+                    <Input value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} placeholder="e.g. Premium" />
+                  </div>
+                </div>
+                <div>
+                  <label className="text-sm font-medium">Description</label>
+                  <Input value={formData.description || ''} onChange={e => setFormData({...formData, description: e.target.value})} placeholder="Short plan description" />
+                </div>
+                <div className="grid grid-cols-3 gap-4">
+                  <div>
+                    <label className="text-sm font-medium">Price</label>
+                    <Input type="number" step="0.01" value={formData.price} onChange={e => setFormData({...formData, price: Number(e.target.value)})} />
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium">Currency</label>
+                    <Input value={formData.currency} onChange={e => setFormData({...formData, currency: e.target.value})} placeholder="usd" />
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium">Billing Cycle</label>
+                    <Select value={formData.billingCycle} onValueChange={v => setFormData({...formData, billingCycle: v})}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        {BILLING_CYCLES.map(b => <SelectItem key={b.value} value={b.value}>{b.label}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+                <div className="grid grid-cols-3 gap-4">
                   <div>
                     <label className="text-sm font-medium">Duration (Days)</label>
                     <Input type="number" value={formData.durationDays} onChange={e => setFormData({...formData, durationDays: Number(e.target.value)})} />
                   </div>
+                  <div>
+                    <label className="text-sm font-medium">Sort Order</label>
+                    <Input type="number" value={formData.sortOrder} onChange={e => setFormData({...formData, sortOrder: Number(e.target.value)})} />
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium">Stripe Price ID</label>
+                    <Input value={formData.stripePriceId || ''} onChange={e => setFormData({...formData, stripePriceId: e.target.value || null})} placeholder="price_xxx" />
+                  </div>
                 </div>
-                <div className="flex items-center gap-2 pt-2">
-                  <Switch checked={formData.isActive} onCheckedChange={(v) => setFormData({...formData, isActive: v})} />
-                  <label className="text-sm">Active (Visible to users)</label>
+                <div className="flex items-center gap-4 pt-2">
+                  <div className="flex items-center gap-2">
+                    <Switch checked={formData.isActive} onCheckedChange={(v) => setFormData({...formData, isActive: v})} />
+                    <label className="text-sm">Active</label>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Switch checked={formData.isVisible} onCheckedChange={(v) => setFormData({...formData, isVisible: v})} />
+                    <label className="text-sm">Visible in App</label>
+                  </div>
                 </div>
 
-                <h3 className="font-semibold border-b pb-2 mt-6">Limits (-1 for unlimited)</h3>
+                {/* Numeric Limits */}
+                <h3 className="font-semibold border-b pb-2 mt-6">Numeric Limits (-1 = unlimited)</h3>
                 <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="text-xs">Daily Likes</label>
-                    <Input type="number" value={formData.dailyLikesLimit} onChange={e => setFormData({...formData, dailyLikesLimit: Number(e.target.value)})} />
-                  </div>
-                  <div>
-                    <label className="text-xs">Daily Super Likes</label>
-                    <Input type="number" value={formData.dailySuperLikesLimit} onChange={e => setFormData({...formData, dailySuperLikesLimit: Number(e.target.value)})} />
-                  </div>
-                  <div>
-                    <label className="text-xs">Monthly Rewinds</label>
-                    <Input type="number" value={formData.monthlyRewindsLimit} onChange={e => setFormData({...formData, monthlyRewindsLimit: Number(e.target.value)})} />
-                  </div>
-                  <div>
-                    <label className="text-xs">Weekly Boosts</label>
-                    <Input type="number" value={formData.weeklyBoostsLimit} onChange={e => setFormData({...formData, weeklyBoostsLimit: Number(e.target.value)})} />
-                  </div>
+                  {NUMERIC_LIMITS.map(lim => (
+                    <div key={lim.key}>
+                      <label className="text-xs font-medium">{lim.label}</label>
+                      <Input
+                        type="number"
+                        value={formData.entitlements?.[lim.key] ?? lim.defaultVal}
+                        onChange={e => setEntitlementLimit(lim.key, Number(e.target.value))}
+                      />
+                    </div>
+                  ))}
                 </div>
               </div>
 
+              {/* Right: Boolean Feature Flags */}
               <div className="space-y-4">
-                <h3 className="font-semibold border-b pb-2">Features</h3>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-[400px] overflow-y-auto">
-                  {ALL_FEATURES.map(feat => (
-                    <div key={feat} className="flex items-center space-x-2 border p-2 rounded-md">
-                      <Switch 
-                        checked={formData.features.includes(feat)} 
-                        onCheckedChange={() => toggleFeature(feat)} 
+                <h3 className="font-semibold border-b pb-2">Feature Flags</h3>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-[500px] overflow-y-auto">
+                  {BOOLEAN_FEATURES.map(feat => (
+                    <div key={feat.key} className="flex items-center space-x-2 border p-2 rounded-md">
+                      <Switch
+                        checked={!!formData.entitlements?.[feat.key]}
+                        onCheckedChange={() => toggleEntitlement(feat.key)}
                       />
-                      <label className="text-xs capitalize flex-1 cursor-pointer" onClick={() => toggleFeature(feat)}>
-                        {feat.replace(/_/g, ' ')}
+                      <label className="text-xs flex-1 cursor-pointer" onClick={() => toggleEntitlement(feat.key)}>
+                        {feat.label}
                       </label>
                     </div>
                   ))}

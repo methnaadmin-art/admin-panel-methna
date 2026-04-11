@@ -8,11 +8,14 @@ export enum UserRole {
 
 export enum UserStatus {
   ACTIVE = 'active',
+  LIMITED = 'limited',
   SUSPENDED = 'suspended',
+  SHADOW_SUSPENDED = 'shadow_suspended',
   BANNED = 'banned',
-  DEACTIVATED = 'deactivated',
-  PENDING_VERIFICATION = 'pending_verification',
   REJECTED = 'rejected',
+  DEACTIVATED = 'deactivated',
+  CLOSED = 'closed',
+  PENDING_VERIFICATION = 'pending_verification',
 }
 
 export enum Gender {
@@ -353,6 +356,69 @@ export interface UserDetail {
     remainingDays: number
     isExpired: boolean
   }
+}
+
+export interface SubscriptionHistoryEntry {
+  id: string
+  userId: string
+  planId: string
+  planCode: string
+  planName: string
+  billingCycle: string
+  status: string
+  startDate: string
+  endDate: string
+  stripeSubscriptionId?: string
+  stripePriceId?: string
+  createdAt: string
+}
+
+export interface ConversationDetail {
+  id: string
+  matchId: string
+  user1Id: string
+  user2Id: string
+  lastMessageContent?: string
+  lastMessageAt?: string
+  lastMessageSenderId?: string
+  user1UnreadCount: number
+  user2UnreadCount: number
+  user1Muted: boolean
+  user2Muted: boolean
+  isActive: boolean
+  isLocked: boolean
+  lockReason?: string
+  isFlagged: boolean
+  flagReason?: string
+  createdAt: string
+  updatedAt: string
+  user1?: User & { profile?: Profile }
+  user2?: User & { profile?: Profile }
+  lastMessage?: Message
+}
+
+export interface NotificationFilterParams {
+  ageMin?: number
+  ageMax?: number
+  gender?: string
+  premiumOnly?: boolean
+  country?: string
+  city?: string
+  recentOnly?: boolean
+  recentDays?: number
+}
+
+export interface NotificationPreview {
+  recipientCount: number
+  filters: NotificationFilterParams
+}
+
+export interface AdTargeting {
+  country?: string
+  city?: string
+  targetGender?: string
+  targetPlan?: string
+  showEveryNUsers: number
 }
 
 export interface AuthResponse {

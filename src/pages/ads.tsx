@@ -47,12 +47,17 @@ interface Ad {
   clicks: number
   targetGender?: string
   targetPlan?: string
+  targetCountry?: string
+  targetCity?: string
+  showEveryNUsers: number
+  weight: number
   createdAt: string
 }
 
 const emptyForm = {
   title: '', description: '', imageUrl: '', buttonText: '', buttonLink: '',
   placement: 'banner', status: 'draft', targetGender: '', targetPlan: '',
+  targetCountry: '', targetCity: '', showEveryNUsers: 1, weight: 1,
 }
 
 export default function AdsPage() {
@@ -99,6 +104,10 @@ export default function AdsPage() {
       status: ad.status || 'draft',
       targetGender: ad.targetGender || '',
       targetPlan: ad.targetPlan || '',
+      targetCountry: ad.targetCountry || '',
+      targetCity: ad.targetCity || '',
+      showEveryNUsers: ad.showEveryNUsers || 1,
+      weight: ad.weight || 1,
     })
     setFormDialog(true)
   }
@@ -248,6 +257,15 @@ export default function AdsPage() {
                       {ad.impressions > 0 && (
                         <span>{((ad.clicks / ad.impressions) * 100).toFixed(1)}% CTR</span>
                       )}
+                      {(ad as any).showEveryNUsers > 1 && (
+                        <span>Every {(ad as any).showEveryNUsers} users</span>
+                      )}
+                    </div>
+                    <div className="flex flex-wrap gap-1 mb-2">
+                      {ad.targetGender && <Badge variant="outline" className="text-[9px] capitalize">{ad.targetGender}</Badge>}
+                      {ad.targetPlan && <Badge variant="outline" className="text-[9px] capitalize">{ad.targetPlan}</Badge>}
+                      {(ad as any).targetCountry && <Badge variant="outline" className="text-[9px]">{(ad as any).targetCountry}</Badge>}
+                      {(ad as any).targetCity && <Badge variant="outline" className="text-[9px]">{(ad as any).targetCity}</Badge>}
                     </div>
 
                     <div className="flex gap-2">
@@ -354,6 +372,27 @@ export default function AdsPage() {
                     <SelectItem value="gold">Gold Only</SelectItem>
                   </SelectContent>
                 </Select>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs font-medium">Target Country</label>
+                <Input value={form.targetCountry} onChange={(e) => setForm({ ...form, targetCountry: e.target.value })} placeholder="e.g. Jordan" />
+              </div>
+              <div>
+                <label className="text-xs font-medium">Target City</label>
+                <Input value={form.targetCity} onChange={(e) => setForm({ ...form, targetCity: e.target.value })} placeholder="e.g. Amman" />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs font-medium">Frequency: Show every N users</label>
+                <Input type="number" min={1} max={100} value={form.showEveryNUsers} onChange={(e) => setForm({ ...form, showEveryNUsers: Number(e.target.value) || 1 })} placeholder="1" />
+                <p className="text-[10px] text-muted-foreground mt-0.5">1 = every user, 5 = every 5th user</p>
+              </div>
+              <div>
+                <label className="text-xs font-medium">Weight (priority: higher = shown more often)</label>
+                <Input type="number" min={1} max={100} value={form.weight} onChange={(e) => setForm({ ...form, weight: Number(e.target.value) || 1 })} placeholder="1" />
               </div>
             </div>
           </div>

@@ -31,6 +31,7 @@ import {
   RefreshCw,
   Calendar,
   Filter,
+  Crown,
 } from 'lucide-react'
 import { formatDateTime } from '@/lib/utils'
 import api from '@/lib/api'
@@ -44,6 +45,7 @@ interface AuditLog {
   targetId?: string
   details?: string
   ip?: string
+  category: string
   timestamp: string
 }
 
@@ -55,8 +57,14 @@ const actionIcons: Record<string, typeof Shield> = {
   photo_moderate: Image,
   report_resolve: Flag,
   notification_send: Bell,
+  send_notification: Bell,
   shadow_ban: Shield,
   ticket_reply: Mail,
+  lock_conversation: Shield,
+  unlock_conversation: Shield,
+  flag_conversation: Flag,
+  unflag_conversation: Flag,
+  subscription_override: Crown,
   default: ScrollText,
 }
 
@@ -68,8 +76,14 @@ const actionColors: Record<string, string> = {
   photo_moderate: 'text-purple-600 bg-purple-50',
   report_resolve: 'text-orange-600 bg-orange-50',
   notification_send: 'text-cyan-600 bg-cyan-50',
+  send_notification: 'text-cyan-600 bg-cyan-50',
   shadow_ban: 'text-red-600 bg-red-50',
   ticket_reply: 'text-teal-600 bg-teal-50',
+  lock_conversation: 'text-red-600 bg-red-50',
+  unlock_conversation: 'text-emerald-600 bg-emerald-50',
+  flag_conversation: 'text-amber-600 bg-amber-50',
+  unflag_conversation: 'text-emerald-600 bg-emerald-50',
+  subscription_override: 'text-purple-600 bg-purple-50',
   default: 'text-gray-600 bg-gray-50',
 }
 
@@ -81,6 +95,7 @@ export default function AuditLogsPage() {
   const [loading, setLoading] = useState(true)
   const [page, setPage] = useState(1)
   const [actionFilter, setActionFilter] = useState('all')
+  const [categoryFilter, setCategoryFilter] = useState('all')
   const [searchQuery, setSearchQuery] = useState('')
   const limit = 15
 
@@ -101,6 +116,7 @@ export default function AuditLogsPage() {
           targetId: entry.targetId || entry.targetUserId || '',
           details: entry.details || entry.newStatus || entry.reason || JSON.stringify(entry).slice(0, 120),
           ip: entry.ip || entry.ipAddress || '',
+          category,
           timestamp: entry.timestamp || entry.createdAt || new Date().toISOString(),
         })
 
@@ -134,6 +150,10 @@ export default function AuditLogsPage() {
   }, [page])
 
   const filtered = logs.filter((log) => {
+    if (categoryFilter !== 'all') {
+      const category = (log as any).category || ''
+      if (category !== categoryFilter) return false
+    }
     if (actionFilter !== 'all' && log.action !== actionFilter) return false
     if (searchQuery) {
       const q = searchQuery.toLowerCase()
@@ -229,6 +249,17 @@ export default function AuditLogsPage() {
             className="pl-9"
           />
         </div>
+        <Select value={categoryFilter} onValueChange={(v) => { setCategoryFilter(v); setPage(1) }}>
+          <SelectTrigger className="w-full sm:w-40">
+            <SelectValue placeholder="Category" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Categories</SelectItem>
+            <SelectItem value="admin">Admin</SelectItem>
+            <SelectItem value="login">Login</SelectItem>
+            <SelectItem value="suspicious">Suspicious</SelectItem>
+          </SelectContent>
+        </Select>
         <Select value={actionFilter} onValueChange={(v) => { setActionFilter(v); setPage(1) }}>
           <SelectTrigger className="w-full sm:w-48">
             <Filter className="h-4 w-4 mr-2" />
@@ -243,8 +274,12 @@ export default function AuditLogsPage() {
             <SelectItem value="photo_moderate">Photo Moderation</SelectItem>
             <SelectItem value="report_resolve">Report Resolution</SelectItem>
             <SelectItem value="notification_send">Notifications</SelectItem>
+            <SelectItem value="send_notification">Notifications</SelectItem>
             <SelectItem value="shadow_ban">Shadow Bans</SelectItem>
             <SelectItem value="ticket_reply">Ticket Replies</SelectItem>
+            <SelectItem value="lock_conversation">Lock Conversation</SelectItem>
+            <SelectItem value="flag_conversation">Flag Conversation</SelectItem>
+            <SelectItem value="subscription_override">Subscription Override</SelectItem>
           </SelectContent>
         </Select>
       </div>
@@ -279,6 +314,7 @@ export default function AuditLogsPage() {
                         <Badge variant="outline" className="text-[10px] h-5">
                           {log.action.replace(/_/g, ' ')}
                         </Badge>
+                        <Badge variant="secondary" className="text-[9px] h-4 capitalize">{log.category}</Badge>
                         <span className="text-xs text-muted-foreground">on {log.target}</span>
                       </div>
                       {log.details && (

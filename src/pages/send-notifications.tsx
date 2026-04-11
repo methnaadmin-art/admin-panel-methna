@@ -12,7 +12,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { Loader2, Bell, Send, Users, User, CheckCircle2 } from 'lucide-react'
+import { Loader2, Bell, Send, Users, User, CheckCircle2, Filter, Eye, MapPin, Calendar, Crown } from 'lucide-react'
 
 export default function SendNotificationsPage() {
   const { t } = useTranslation()
@@ -24,6 +24,46 @@ export default function SendNotificationsPage() {
   const [loading, setLoading] = useState(false)
   const [result, setResult] = useState<{ success: boolean; message: string } | null>(null)
 
+  // Targeted filters
+  const [filters, setFilters] = useState({
+    ageMin: '',
+    ageMax: '',
+    gender: 'all',
+    premiumOnly: false,
+    country: '',
+    city: '',
+    recentOnly: false,
+    recentDays: '30',
+  })
+  const [previewCount, setPreviewCount] = useState<number | null>(null)
+  const [previewLoading, setPreviewLoading] = useState(false)
+
+  const handlePreview = async () => {
+    setPreviewLoading(true)
+    try {
+      const filterParams: Record<string, any> = {}
+      if (filters.ageMin) filterParams.ageMin = Number(filters.ageMin)
+      if (filters.ageMax) filterParams.ageMax = Number(filters.ageMax)
+      if (filters.gender !== 'all') filterParams.gender = filters.gender
+      if (filters.premiumOnly) filterParams.premiumOnly = true
+      if (filters.country) filterParams.country = filters.country
+      if (filters.city) filterParams.city = filters.city
+      if (filters.recentOnly) {
+        filterParams.recentOnly = true
+        filterParams.recentDays = Number(filters.recentDays) || 30
+      }
+      const { data } = await adminApi.previewNotificationRecipients(filterParams)
+      setPreviewCount(data?.recipientCount || data?.count || 0)
+    } catch (err) {
+      console.error(err)
+      setPreviewCount(null)
+    } finally {
+      setPreviewLoading(false)
+    }
+  }
+
+  const hasActiveFilters = filters.ageMin || filters.ageMax || filters.gender !== 'all' || filters.premiumOnly || filters.country || filters.city || filters.recentOnly
+
   const handleSend = async () => {
     if (!title.trim() || !body.trim()) return
     if (mode === 'single' && !userId.trim()) return
@@ -31,13 +71,30 @@ export default function SendNotificationsPage() {
     setLoading(true)
     setResult(null)
     try {
-      const { data } = await adminApi.sendNotification({
+      const payload: { userId?: string; title: string; body: string; type?: string; broadcast?: boolean; filters?: Record<string, any> } = {
         userId: mode === 'single' ? userId.trim() : undefined,
         title: title.trim(),
         body: body.trim(),
         type,
         broadcast: mode === 'broadcast',
-      })
+      }
+
+      if (mode === 'broadcast' && hasActiveFilters) {
+        const filterParams: Record<string, any> = {}
+        if (filters.ageMin) filterParams.ageMin = Number(filters.ageMin)
+        if (filters.ageMax) filterParams.ageMax = Number(filters.ageMax)
+        if (filters.gender !== 'all') filterParams.gender = filters.gender
+        if (filters.premiumOnly) filterParams.premiumOnly = true
+        if (filters.country) filterParams.country = filters.country
+        if (filters.city) filterParams.city = filters.city
+        if (filters.recentOnly) {
+          filterParams.recentOnly = true
+          filterParams.recentDays = Number(filters.recentDays) || 30
+        }
+        payload.filters = filterParams
+      }
+
+      const { data } = await adminApi.sendNotification(payload)
       setResult({
         success: true,
         message: `Notification sent to ${data.sent || 1} user(s)${data.broadcast ? ' (broadcast)' : ''}.`,
@@ -45,6 +102,7 @@ export default function SendNotificationsPage() {
       setTitle('')
       setBody('')
       setUserId('')
+      setPreviewCount(null)
     } catch (err: any) {
       setResult({
         success: false,
@@ -93,6 +151,144 @@ export default function SendNotificationsPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Targeted Filters (broadcast only) */}
+      {mode === 'broadcast' && (
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base flex items-center gap-2">
+              <Filter className="h-4 w-4" /> Target Audience
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              <div>
+                <label className="text-xs font-medium">Min Age</label>
+                <Input
+                  type="number"
+                  min={18}
+                  max={100}
+                  value={filters.ageMin}
+                  onChange={(e) => setFilters({ ...filters, ageMin: e.target.value })}
+                  placeholder="18"
+                  className="mt-1"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-medium">Max Age</label>
+                <Input
+                  type="number"
+                  min={18}
+                  max={100}
+                  value={filters.ageMax}
+                  onChange={(e) => setFilters({ ...filters, ageMax: e.target.value })}
+                  placeholder="65"
+                  className="mt-1"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-medium">Gender</label>
+                <Select value={filters.gender} onValueChange={(v) => setFilters({ ...filters, gender: v })}>
+                  <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Genders</SelectItem>
+                    <SelectItem value="male">Male</SelectItem>
+                    <SelectItem value="female">Female</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <label className="text-xs font-medium flex items-center gap-1">
+                  <MapPin className="h-3 w-3" /> Country
+                </label>
+                <Input
+                  value={filters.country}
+                  onChange={(e) => setFilters({ ...filters, country: e.target.value })}
+                  placeholder="e.g. Jordan"
+                  className="mt-1"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-medium flex items-center gap-1">
+                  <MapPin className="h-3 w-3" /> City
+                </label>
+                <Input
+                  value={filters.city}
+                  onChange={(e) => setFilters({ ...filters, city: e.target.value })}
+                  placeholder="e.g. Amman"
+                  className="mt-1"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-medium flex items-center gap-1">
+                  <Crown className="h-3 w-3" /> Premium Only
+                </label>
+                <div className="mt-1.5">
+                  <button
+                    onClick={() => setFilters({ ...filters, premiumOnly: !filters.premiumOnly })}
+                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${filters.premiumOnly ? 'bg-primary' : 'bg-muted'}`}
+                  >
+                    <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${filters.premiumOnly ? 'translate-x-6' : 'translate-x-1'}`} />
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-4 border-t pt-4">
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setFilters({ ...filters, recentOnly: !filters.recentOnly })}
+                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${filters.recentOnly ? 'bg-primary' : 'bg-muted'}`}
+                >
+                  <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${filters.recentOnly ? 'translate-x-6' : 'translate-x-1'}`} />
+                </button>
+                <label className="text-xs font-medium flex items-center gap-1">
+                  <Calendar className="h-3 w-3" /> Active in last
+                </label>
+              </div>
+              {filters.recentOnly && (
+                <Input
+                  type="number"
+                  min={1}
+                  max={365}
+                  value={filters.recentDays}
+                  onChange={(e) => setFilters({ ...filters, recentDays: e.target.value })}
+                  className="w-24"
+                  placeholder="30"
+                />
+              )}
+              {filters.recentOnly && <span className="text-xs text-muted-foreground">days</span>}
+            </div>
+
+            {/* Active filter badges */}
+            {hasActiveFilters && (
+              <div className="flex flex-wrap gap-1.5">
+                {filters.ageMin && <Badge variant="outline" className="text-[10px]">Min Age: {filters.ageMin}</Badge>}
+                {filters.ageMax && <Badge variant="outline" className="text-[10px]">Max Age: {filters.ageMax}</Badge>}
+                {filters.gender !== 'all' && <Badge variant="outline" className="text-[10px] capitalize">{filters.gender}</Badge>}
+                {filters.premiumOnly && <Badge variant="outline" className="text-[10px]">Premium Only</Badge>}
+                {filters.country && <Badge variant="outline" className="text-[10px]">{filters.country}</Badge>}
+                {filters.city && <Badge variant="outline" className="text-[10px]">{filters.city}</Badge>}
+                {filters.recentOnly && <Badge variant="outline" className="text-[10px]">Active ≤{filters.recentDays}d</Badge>}
+              </div>
+            )}
+
+            {/* Preview button */}
+            <div className="flex items-center gap-3">
+              <Button variant="outline" size="sm" onClick={handlePreview} disabled={previewLoading} className="gap-1.5">
+                {previewLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Eye className="h-3.5 w-3.5" />}
+                Preview Recipients
+              </Button>
+              {previewCount !== null && (
+                <p className="text-sm font-medium">
+                  <span className="text-2xl font-bold text-primary">{previewCount.toLocaleString()}</span>
+                  <span className="text-muted-foreground ml-1">users match your filters</span>
+                </p>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Compose */}
       <Card>
@@ -173,7 +369,14 @@ export default function SendNotificationsPage() {
                     <Badge variant="secondary" className="text-[10px] capitalize">{type}</Badge>
                   </div>
                   <p className="text-sm text-muted-foreground mt-0.5">{body || 'Notification body text...'}</p>
-                  <p className="text-[10px] text-muted-foreground mt-1">Just now</p>
+                  <div className="flex items-center gap-2 mt-1">
+                    <p className="text-[10px] text-muted-foreground">Just now</p>
+                    {mode === 'broadcast' && hasActiveFilters && (
+                      <Badge variant="outline" className="text-[9px] gap-0.5">
+                        <Filter className="h-2.5 w-2.5" /> Filtered
+                      </Badge>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>

@@ -1,72 +1,241 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef, useCallback } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { adminApi } from '@/lib/api'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import type { Conversation, Message } from '@/types'
-import { formatDateTime } from '@/lib/utils'
-import { Loader2, MessageSquare, Eye, ArrowLeft, VolumeX, Volume2 } from 'lucide-react'
+import { Input } from '@/components/ui/input'
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription,
+} from '@/components/ui/dialog'
+import { Textarea } from '@/components/ui/textarea'
+import type { ConversationDetail, Message } from '@/types'
+import { formatDateTime, formatDate } from '@/lib/utils'
+import {
+  Loader2, MessageSquare, Search, ArrowLeft, Flag, Lock, Unlock,
+  User, ChevronLeft, ChevronRight, AlertTriangle, ExternalLink,
+} from 'lucide-react'
+
+function HighlightedText({ text, highlight }: { text: string; highlight: string }) {
+  if (!highlight.trim()) return <>{text}</>
+  const regex = new RegExp(`(${highlight.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi')
+  const parts = text.split(regex)
+  return (
+    <>
+      {parts.map((part, i) =>
+        regex.test(part) ? (
+          <mark key={i} className="bg-yellow-200 text-yellow-900 rounded px-0.5">{part}</mark>
+        ) : (
+          <span key={i}>{part}</span>
+        )
+      )}
+    </>
+  )
+}
 
 export default function ChatPage() {
   const { t } = useTranslation()
-  const [conversations, setConversations] = useState<Conversation[]>([])
+  const navigate = useNavigate()
+  const messagesEndRef = useRef<HTMLDivElement>(null)
+
+  const [conversations, setConversations] = useState<ConversationDetail[]>([])
+  const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(true)
-  const [selectedConvo, setSelectedConvo] = useState<string | null>(null)
+  const [page, setPage] = useState(1)
+  const [search, setSearch] = useState('')
+  const limit = 20
+
+  const [selectedConvo, setSelectedConvo] = useState<ConversationDetail | null>(null)
   const [messages, setMessages] = useState<Message[]>([])
   const [messagesLoading, setMessagesLoading] = useState(false)
+  const [msgSearch, setMsgSearch] = useState('')
+  const [msgPage, setMsgPage] = useState(1)
+  const [msgTotal, setMsgTotal] = useState(0)
+  const msgLimit = 50
 
-  useEffect(() => {
-    const load = async () => {
-      try {
-        const { data } = await adminApi.getConversations()
-        setConversations(Array.isArray(data) ? data : data?.conversations || [])
-      } catch (err) {
-        console.error(err)
-      } finally {
-        setLoading(false)
-      }
+  const [lockDialog, setLockDialog] = useState<{ open: boolean; id: string; locked: boolean }>({ open: false, id: '', locked: false })
+  const [lockReason, setLockReason] = useState('')
+  const [flagDialog, setFlagDialog] = useState<{ open: boolean; id: string; flagged: boolean }>({ open: false, id: '', flagged: false })
+  const [flagReason, setFlagReason] = useState('')
+  const [actionLoading, setActionLoading] = useState(false)
+
+  const fetchConversations = useCallback(async () => {
+    setLoading(true)
+    try {
+      const { data } = await adminApi.getConversations(page, limit, search || undefined)
+      const list = Array.isArray(data) ? data : data?.conversations || data?.data || []
+      setConversations(list)
+      setTotal(data?.total || list.length)
+    } catch (err) {
+      console.error(err)
+    } finally {
+      setLoading(false)
     }
-    load()
-  }, [])
+  }, [page, search])
 
-  const viewMessages = async (conversationId: string) => {
-    setSelectedConvo(conversationId)
+  useEffect(() => { fetchConversations() }, [fetchConversations])
+
+  const fetchMessages = useCallback(async () => {
+    if (!selectedConvo) return
     setMessagesLoading(true)
     try {
-      const { data } = await adminApi.getConversationMessages(conversationId)
-      setMessages(Array.isArray(data) ? data : data?.messages || [])
+      const { data } = await adminApi.getConversationMessages(selectedConvo.id, msgPage, msgLimit, msgSearch || undefined)
+      const list = Array.isArray(data) ? data : data?.messages || data?.data || []
+      setMessages(list)
+      setMsgTotal(data?.total || list.length)
     } catch (err) {
       console.error(err)
     } finally {
       setMessagesLoading(false)
     }
-  }
+  }, [selectedConvo, msgPage, msgSearch])
 
-  const handleMute = async (conversationId: string) => {
+  useEffect(() => {
+    if (selectedConvo) fetchMessages()
+  }, [selectedConvo, msgPage, msgSearch, fetchMessages])
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [messages])
+
+  const handleLock = async () => {
+    setActionLoading(true)
     try {
-      await adminApi.getConversations() // mute not available in admin API; refresh list instead
-      // Note: mute is a user-facing action, admin can only view conversations
-      setConversations(prev =>
-        prev.map(c => c.id === conversationId ? { ...c, isMuted: !c.isMuted } : c)
-      )
+      if (lockDialog.locked) {
+        await adminApi.unlockConversation(lockDialog.id)
+      } else {
+        await adminApi.lockConversation(lockDialog.id, lockReason)
+      }
+      await fetchConversations()
+      if (selectedConvo?.id === lockDialog.id) {
+        setSelectedConvo(prev => prev ? { ...prev, isLocked: !lockDialog.locked, lockReason: lockDialog.locked ? undefined : lockReason } : null)
+      }
     } catch (err) {
       console.error(err)
+    } finally {
+      setActionLoading(false)
+      setLockDialog({ open: false, id: '', locked: false })
+      setLockReason('')
     }
   }
 
-  if (selectedConvo) {
-    return (
-      <div className="space-y-6">
-        <Button variant="ghost" onClick={() => { setSelectedConvo(null); setMessages([]) }} className="gap-2">
-          <ArrowLeft className="h-4 w-4" /> {t('chat.backToConversations')}
-        </Button>
+  const handleFlag = async () => {
+    setActionLoading(true)
+    try {
+      if (flagDialog.flagged) {
+        await adminApi.unflagConversation(flagDialog.id)
+      } else {
+        await adminApi.flagConversation(flagDialog.id, flagReason)
+      }
+      await fetchConversations()
+      if (selectedConvo?.id === flagDialog.id) {
+        setSelectedConvo(prev => prev ? { ...prev, isFlagged: !flagDialog.flagged, flagReason: flagDialog.flagged ? undefined : flagReason } : null)
+      }
+    } catch (err) {
+      console.error(err)
+    } finally {
+      setActionLoading(false)
+      setFlagDialog({ open: false, id: '', flagged: false })
+      setFlagReason('')
+    }
+  }
 
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-lg">{t('chat.messages')}</CardTitle>
-          </CardHeader>
-          <CardContent>
+  const openConversation = (convo: ConversationDetail) => {
+    setSelectedConvo(convo)
+    setMsgSearch('')
+    setMsgPage(1)
+  }
+
+  const totalPages = Math.ceil(total / limit)
+  const msgTotalPages = Math.ceil(msgTotal / msgLimit)
+
+  // ─── CONVERSATION DETAIL VIEW (WhatsApp-style) ──────────────
+  if (selectedConvo) {
+    const user1Name = selectedConvo.user1
+      ? `${selectedConvo.user1.firstName} ${selectedConvo.user1.lastName}`
+      : selectedConvo.user1Id.slice(0, 8)
+    const user2Name = selectedConvo.user2
+      ? `${selectedConvo.user2.firstName} ${selectedConvo.user2.lastName}`
+      : selectedConvo.user2Id.slice(0, 8)
+    const user1Photo = (selectedConvo.user1 as any)?.profile?.photos?.[0]?.url || (selectedConvo.user1 as any)?.photos?.[0]?.url
+    const user2Photo = (selectedConvo.user2 as any)?.profile?.photos?.[0]?.url || (selectedConvo.user2 as any)?.photos?.[0]?.url
+
+    return (
+      <div className="space-y-4">
+        {/* Header */}
+        <div className="flex items-center gap-3">
+          <Button variant="ghost" size="icon" onClick={() => { setSelectedConvo(null); setMessages([]) }}>
+            <ArrowLeft className="h-5 w-5" />
+          </Button>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <h2 className="text-lg font-bold truncate">{user1Name} & {user2Name}</h2>
+              {selectedConvo.isLocked && <Badge variant="destructive" className="gap-1"><Lock className="h-3 w-3" /> Locked</Badge>}
+              {selectedConvo.isFlagged && <Badge variant="warning" className="gap-1"><Flag className="h-3 w-3" /> Flagged</Badge>}
+              {!selectedConvo.isActive && <Badge variant="secondary">Inactive</Badge>}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Created {formatDate(selectedConvo.createdAt)}
+              {selectedConvo.lastMessageAt && ` · Last activity ${formatDateTime(selectedConvo.lastMessageAt)}`}
+            </p>
+          </div>
+          <div className="flex gap-1.5 shrink-0">
+            <Button size="sm" variant="outline" onClick={() => navigate(`/users/${selectedConvo.user1Id}`)} className="gap-1">
+              <ExternalLink className="h-3 w-3" /> {user1Name.split(' ')[0]}
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => navigate(`/users/${selectedConvo.user2Id}`)} className="gap-1">
+              <ExternalLink className="h-3 w-3" /> {user2Name.split(' ')[0]}
+            </Button>
+            <Button
+              size="sm"
+              variant={selectedConvo.isFlagged ? 'outline' : 'default'}
+              onClick={() => setFlagDialog({ open: true, id: selectedConvo.id, flagged: selectedConvo.isFlagged })}
+              className="gap-1"
+            >
+              <Flag className="h-3 w-3" /> {selectedConvo.isFlagged ? 'Unflag' : 'Flag'}
+            </Button>
+            <Button
+              size="sm"
+              variant={selectedConvo.isLocked ? 'outline' : 'destructive'}
+              onClick={() => setLockDialog({ open: true, id: selectedConvo.id, locked: selectedConvo.isLocked })}
+              className="gap-1"
+            >
+              {selectedConvo.isLocked ? <Unlock className="h-3 w-3" /> : <Lock className="h-3 w-3" />}
+              {selectedConvo.isLocked ? 'Unlock' : 'Lock'}
+            </Button>
+          </div>
+        </div>
+
+        {/* Flag/Lock reason display */}
+        {selectedConvo.isFlagged && selectedConvo.flagReason && (
+          <div className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 p-2.5 text-sm text-amber-800">
+            <Flag className="h-4 w-4 shrink-0" />
+            <span>Flag reason: {selectedConvo.flagReason}</span>
+          </div>
+        )}
+        {selectedConvo.isLocked && selectedConvo.lockReason && (
+          <div className="flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 p-2.5 text-sm text-red-800">
+            <Lock className="h-4 w-4 shrink-0" />
+            <span>Lock reason: {selectedConvo.lockReason}</span>
+          </div>
+        )}
+
+        {/* Message search */}
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            placeholder="Search messages by keyword..."
+            value={msgSearch}
+            onChange={(e) => { setMsgSearch(e.target.value); setMsgPage(1) }}
+            className="pl-9"
+          />
+        </div>
+
+        {/* Chat messages - WhatsApp style */}
+        <Card className="overflow-hidden">
+          <div className="max-h-[600px] overflow-y-auto p-4 space-y-3 bg-muted/20">
             {messagesLoading ? (
               <div className="flex h-40 items-center justify-center">
                 <Loader2 className="h-6 w-6 animate-spin text-primary" />
@@ -74,43 +243,160 @@ export default function ChatPage() {
             ) : messages.length === 0 ? (
               <p className="py-8 text-center text-muted-foreground">{t('chat.noMessages')}</p>
             ) : (
-              <div className="space-y-3 max-h-[600px] overflow-y-auto">
-                {messages.map((msg) => (
-                  <div key={msg.id} className="flex gap-3 rounded-lg border p-3 hover:bg-muted/50">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-1">
-                        <span className="text-sm font-medium">
-                          {msg.sender ? `${msg.sender.firstName} ${msg.sender.lastName}` : msg.senderId.slice(0, 8)}
-                        </span>
-                        <Badge variant="secondary" className="text-[10px]">{msg.type || 'text'}</Badge>
-                        {msg.isRead && <Badge variant="info" className="text-[10px]">Read</Badge>}
-                        {msg.isDelivered && !msg.isRead && <Badge variant="outline" className="text-[10px]">Delivered</Badge>}
+              messages.map((msg) => {
+                const isUser1 = msg.senderId === selectedConvo.user1Id
+                const senderName = msg.sender
+                  ? `${msg.sender.firstName} ${msg.sender.lastName}`
+                  : msg.senderId.slice(0, 8)
+                const senderPhoto = (msg.sender as any)?.profile?.photos?.[0]?.url || (msg.sender as any)?.photos?.[0]?.url
+
+                return (
+                  <div key={msg.id} className={`flex gap-2 ${isUser1 ? 'justify-start' : 'justify-end'}`}>
+                    <div className={`flex gap-2 max-w-[75%] ${isUser1 ? '' : 'flex-row-reverse'}`}>
+                      <Avatar className="h-8 w-8 shrink-0 mt-1">
+                        {senderPhoto && <AvatarImage src={senderPhoto} />}
+                        <AvatarFallback className="text-[10px]">{senderName.slice(0, 2).toUpperCase()}</AvatarFallback>
+                      </Avatar>
+                      <div className={`rounded-2xl px-4 py-2.5 ${isUser1 ? 'bg-white border' : 'bg-primary text-primary-foreground'}`}>
+                        <div className="flex items-center gap-2 mb-0.5">
+                          <span className={`text-xs font-semibold ${isUser1 ? 'text-blue-600' : 'text-primary-foreground/80'}`}>
+                            {senderName}
+                          </span>
+                          <Badge variant={isUser1 ? 'secondary' : 'outline'} className={`text-[9px] h-4 ${isUser1 ? '' : 'border-primary-foreground/30 text-primary-foreground/70'}`}>
+                            {msg.type || 'text'}
+                          </Badge>
+                        </div>
+                        <p className={`text-sm whitespace-pre-wrap break-words ${isUser1 ? '' : 'text-primary-foreground'}`}>
+                          <HighlightedText text={msg.content} highlight={msgSearch} />
+                        </p>
+                        <div className="flex items-center gap-2 mt-1">
+                          <span className={`text-[10px] ${isUser1 ? 'text-muted-foreground' : 'text-primary-foreground/60'}`}>
+                            {formatDateTime(msg.createdAt)}
+                          </span>
+                          {(msg as any).status === 'seen' && <span className="text-[10px] text-blue-500">✓✓</span>}
+                          {(msg as any).status === 'delivered' && <span className="text-[10px] text-muted-foreground">✓✓</span>}
+                        </div>
                       </div>
-                      <p className="text-sm">{msg.content}</p>
-                      <p className="text-[10px] text-muted-foreground mt-1">{formatDateTime(msg.createdAt)}</p>
                     </div>
                   </div>
-                ))}
-              </div>
+                )
+              })
             )}
-          </CardContent>
+            <div ref={messagesEndRef} />
+          </div>
         </Card>
+
+        {/* Message pagination */}
+        {msgTotalPages > 1 && (
+          <div className="flex items-center justify-between">
+            <p className="text-sm text-muted-foreground">
+              {msgTotal} messages · Page {msgPage} of {msgTotalPages}
+            </p>
+            <div className="flex gap-2">
+              <Button size="sm" variant="outline" disabled={msgPage <= 1} onClick={() => setMsgPage(msgPage - 1)}>
+                <ChevronLeft className="h-4 w-4" />
+              </Button>
+              <Button size="sm" variant="outline" disabled={msgPage >= msgTotalPages} onClick={() => setMsgPage(msgPage + 1)}>
+                <ChevronRight className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {/* Flag Dialog */}
+        <Dialog open={flagDialog.open} onOpenChange={(open) => { if (!open) setFlagDialog({ open: false, id: '', flagged: false }) }}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>{flagDialog.flagged ? 'Unflag Conversation' : 'Flag Conversation'}</DialogTitle>
+              <DialogDescription>
+                {flagDialog.flagged ? 'Remove the flag from this conversation.' : 'Flag this conversation for review. Provide a reason.'}
+              </DialogDescription>
+            </DialogHeader>
+            {!flagDialog.flagged && (
+              <Textarea
+                placeholder="Reason for flagging..."
+                value={flagReason}
+                onChange={(e) => setFlagReason(e.target.value)}
+                rows={3}
+              />
+            )}
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setFlagDialog({ open: false, id: '', flagged: false })}>Cancel</Button>
+              <Button
+                variant={flagDialog.flagged ? 'outline' : 'default'}
+                onClick={handleFlag}
+                disabled={actionLoading || (!flagDialog.flagged && !flagReason.trim())}
+              >
+                {actionLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Flag className="h-4 w-4" />}
+                {flagDialog.flagged ? 'Unflag' : 'Flag'}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Lock Dialog */}
+        <Dialog open={lockDialog.open} onOpenChange={(open) => { if (!open) setLockDialog({ open: false, id: '', locked: false }) }}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>{lockDialog.locked ? 'Unlock Conversation' : 'Lock Conversation'}</DialogTitle>
+              <DialogDescription>
+                {lockDialog.locked
+                  ? 'Unlocking will allow participants to send messages again.'
+                  : 'Locking will prevent participants from sending messages. Provide a reason.'}
+              </DialogDescription>
+            </DialogHeader>
+            {!lockDialog.locked && (
+              <Textarea
+                placeholder="Reason for locking..."
+                value={lockReason}
+                onChange={(e) => setLockReason(e.target.value)}
+                rows={3}
+              />
+            )}
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setLockDialog({ open: false, id: '', locked: false })}>Cancel</Button>
+              <Button
+                variant={lockDialog.locked ? 'outline' : 'destructive'}
+                onClick={handleLock}
+                disabled={actionLoading || (!lockDialog.locked && !lockReason.trim())}
+              >
+                {actionLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : lockDialog.locked ? <Unlock className="h-4 w-4" /> : <Lock className="h-4 w-4" />}
+                {lockDialog.locked ? 'Unlock' : 'Lock'}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
     )
   }
 
+  // ─── CONVERSATION LIST VIEW ────────────────────────────────
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold">{t('chat.title')}</h1>
-        <p className="text-muted-foreground">{t('chat.subtitle')}</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold">{t('chat.title')}</h1>
+          <p className="text-muted-foreground">{t('chat.subtitle')}</p>
+        </div>
+        <Badge variant="secondary">{total} conversations</Badge>
+      </div>
+
+      {/* Search */}
+      <div className="relative">
+        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+        <Input
+          placeholder="Search by sender or receiver name..."
+          value={search}
+          onChange={(e) => { setSearch(e.target.value); setPage(1) }}
+          className="pl-9"
+        />
       </div>
 
       <Card>
         <CardHeader className="pb-3">
           <CardTitle className="text-lg flex items-center gap-2">
             <MessageSquare className="h-5 w-5" />
-            {t('chat.conversations')} ({conversations.length})
+            {t('chat.conversations')}
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -121,65 +407,77 @@ export default function ChatPage() {
           ) : conversations.length === 0 ? (
             <p className="py-8 text-center text-muted-foreground">{t('chat.noConversations')}</p>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b text-left text-muted-foreground">
-                    <th className="pb-3 pe-4 font-medium">{t('chat.participants')}</th>
-                    <th className="pb-3 pe-4 font-medium">{t('chat.lastMessage')}</th>
-                    <th className="pb-3 pe-4 font-medium">{t('users.status')}</th>
-                    <th className="pb-3 pe-4 font-medium">{t('chat.lastActivity')}</th>
-                    <th className="pb-3 font-medium text-end">{t('users.actions')}</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y">
-                  {conversations.map((convo) => (
-                    <tr key={convo.id} className="hover:bg-muted/50">
-                      <td className="py-3 pr-4">
-                        <div className="flex flex-col">
-                          <span className="font-medium text-xs">
-                            {convo.participant1 ? `${convo.participant1.firstName} ${convo.participant1.lastName}` : convo.participant1Id?.slice(0, 8)}
-                          </span>
-                          <span className="text-[10px] text-muted-foreground">
-                            vs {convo.participant2 ? `${convo.participant2.firstName} ${convo.participant2.lastName}` : convo.participant2Id?.slice(0, 8)}
-                          </span>
-                        </div>
-                      </td>
-                      <td className="py-3 pr-4 max-w-[200px] truncate text-muted-foreground">
-                        {convo.lastMessage?.content || '-'}
-                      </td>
-                      <td className="py-3 pr-4">
-                        <div className="flex gap-1">
-                          {convo.isMuted && <Badge variant="warning">Muted</Badge>}
-                          {(convo.unreadCount ?? 0) > 0 && (
-                            <Badge variant="destructive">{convo.unreadCount} unread</Badge>
-                          )}
-                          {!convo.isMuted && (convo.unreadCount ?? 0) === 0 && (
-                            <Badge variant="secondary">Active</Badge>
-                          )}
-                        </div>
-                      </td>
-                      <td className="py-3 pr-4 text-muted-foreground whitespace-nowrap">
-                        {convo.lastMessageAt ? formatDateTime(convo.lastMessageAt) : formatDateTime(convo.createdAt)}
-                      </td>
-                      <td className="py-3 text-right">
-                        <div className="flex items-center justify-end gap-1">
-                          <Button size="icon" variant="ghost" onClick={() => viewMessages(convo.id)}>
-                            <Eye className="h-4 w-4" />
-                          </Button>
-                          <Button size="icon" variant="ghost" onClick={() => handleMute(convo.id)}>
-                            {convo.isMuted ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
-                          </Button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            <div className="divide-y">
+              {conversations.map((convo) => {
+                const p1Name = convo.user1 ? `${convo.user1.firstName} ${convo.user1.lastName}` : convo.user1Id.slice(0, 8)
+                const p2Name = convo.user2 ? `${convo.user2.firstName} ${convo.user2.lastName}` : convo.user2Id.slice(0, 8)
+                const p1Photo = (convo.user1 as any)?.profile?.photos?.[0]?.url || (convo.user1 as any)?.photos?.[0]?.url
+                const p2Photo = (convo.user2 as any)?.profile?.photos?.[0]?.url || (convo.user2 as any)?.photos?.[0]?.url
+                const unread = convo.user1UnreadCount + convo.user2UnreadCount
+
+                return (
+                  <div
+                    key={convo.id}
+                    className="flex items-center gap-3 py-3 px-2 hover:bg-muted/50 cursor-pointer transition-colors"
+                    onClick={() => openConversation(convo)}
+                  >
+                    <div className="flex -space-x-2">
+                      <Avatar className="h-9 w-9 border-2 border-background">
+                        {p1Photo && <AvatarImage src={p1Photo} />}
+                        <AvatarFallback className="text-[10px]">{p1Name.slice(0, 2).toUpperCase()}</AvatarFallback>
+                      </Avatar>
+                      <Avatar className="h-9 w-9 border-2 border-background">
+                        {p2Photo && <AvatarImage src={p2Photo} />}
+                        <AvatarFallback className="text-[10px]">{p2Name.slice(0, 2).toUpperCase()}</AvatarFallback>
+                      </Avatar>
+                    </div>
+
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-medium truncate">{p1Name}</span>
+                        <span className="text-xs text-muted-foreground">&</span>
+                        <span className="text-sm font-medium truncate">{p2Name}</span>
+                      </div>
+                      <p className="text-xs text-muted-foreground truncate mt-0.5">
+                        {convo.lastMessageContent || 'No messages yet'}
+                      </p>
+                    </div>
+
+                    <div className="flex flex-col items-end gap-1 shrink-0">
+                      <span className="text-[10px] text-muted-foreground whitespace-nowrap">
+                        {convo.lastMessageAt ? formatDateTime(convo.lastMessageAt) : formatDate(convo.createdAt)}
+                      </span>
+                      <div className="flex gap-1">
+                        {convo.isLocked && <Badge variant="destructive" className="text-[9px] h-4 gap-0.5"><Lock className="h-2.5 w-2.5" /></Badge>}
+                        {convo.isFlagged && <Badge variant="warning" className="text-[9px] h-4 gap-0.5"><Flag className="h-2.5 w-2.5" /></Badge>}
+                        {!convo.isActive && <Badge variant="secondary" className="text-[9px] h-4">Inactive</Badge>}
+                        {unread > 0 && <Badge variant="default" className="text-[9px] h-4">{unread}</Badge>}
+                      </div>
+                    </div>
+                  </div>
+                )
+              })}
             </div>
           )}
         </CardContent>
       </Card>
+
+      {/* Pagination */}
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between">
+          <p className="text-sm text-muted-foreground">
+            Showing {(page - 1) * limit + 1}–{Math.min(page * limit, total)} of {total}
+          </p>
+          <div className="flex gap-2">
+            <Button size="sm" variant="outline" disabled={page <= 1} onClick={() => setPage(page - 1)}>
+              <ChevronLeft className="h-4 w-4" />
+            </Button>
+            <Button size="sm" variant="outline" disabled={page >= totalPages} onClick={() => setPage(page + 1)}>
+              <ChevronRight className="h-4 w-4" />
+            </Button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

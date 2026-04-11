@@ -166,11 +166,50 @@ export const adminApi = {
       () => api.patch(`/admin/users/${id}`, data),
       () => api.put(`/admin/users/${id}`, data),
     ]),
-  updateUserStatus: (id: string, status: string) =>
+  updateUserStatus: (id: string, status: string, options?: {
+    reason?: string;
+    moderationReasonCode?: string;
+    moderationReasonText?: string;
+    actionRequired?: string;
+    supportMessage?: string;
+    isUserVisible?: boolean;
+    expiresAt?: string;
+    internalAdminNote?: string;
+  }) =>
     tryApiRequests([
-      () => api.patch(`/admin/users/${id}/status`, { status }),
-      () => api.patch(`/admin/users/${id}`, { status }),
-      () => api.put(`/admin/users/${id}`, { status }),
+      () => api.patch(`/admin/users/${id}/status`, {
+        status,
+        reason: options?.reason,
+        moderationReasonCode: options?.moderationReasonCode,
+        moderationReasonText: options?.moderationReasonText,
+        actionRequired: options?.actionRequired,
+        supportMessage: options?.supportMessage,
+        isUserVisible: options?.isUserVisible ?? true,
+        expiresAt: options?.expiresAt,
+        internalAdminNote: options?.internalAdminNote,
+      }),
+      () => api.patch(`/admin/users/${id}`, {
+        status,
+        statusReason: options?.reason || null,
+        moderationReasonCode: options?.moderationReasonCode || null,
+        moderationReasonText: options?.moderationReasonText || null,
+        actionRequired: options?.actionRequired || null,
+        supportMessage: options?.supportMessage || null,
+        isUserVisible: options?.isUserVisible ?? true,
+        moderationExpiresAt: options?.expiresAt || null,
+        internalAdminNote: options?.internalAdminNote || null,
+      }),
+      () => api.put(`/admin/users/${id}`, {
+        status,
+        statusReason: options?.reason || null,
+        moderationReasonCode: options?.moderationReasonCode || null,
+        moderationReasonText: options?.moderationReasonText || null,
+        actionRequired: options?.actionRequired || null,
+        supportMessage: options?.supportMessage || null,
+        isUserVisible: options?.isUserVisible ?? true,
+        moderationExpiresAt: options?.expiresAt || null,
+        internalAdminNote: options?.internalAdminNote || null,
+      }),
     ]),
   updateUserPremium: (
     id: string,
@@ -287,10 +326,18 @@ export const adminApi = {
     api.get('/admin/matches', { params: { page, limit } }),
 
   // Conversations
-  getConversations: (page = 1, limit = 20) =>
-    api.get('/admin/conversations', { params: { page, limit } }),
-  getConversationMessages: (id: string, page = 1, limit = 50) =>
-    api.get(`/admin/conversations/${id}/messages`, { params: { page, limit } }),
+  getConversations: (page = 1, limit = 20, search?: string) =>
+    api.get('/admin/conversations', { params: { page, limit, search: search || undefined } }),
+  getConversationMessages: (id: string, page = 1, limit = 50, search?: string) =>
+    api.get(`/admin/conversations/${id}/messages`, { params: { page, limit, search: search || undefined } }),
+  lockConversation: (id: string, reason: string) =>
+    api.patch(`/admin/conversations/${id}/lock`, { isLocked: true, lockReason: reason }),
+  unlockConversation: (id: string) =>
+    api.patch(`/admin/conversations/${id}/lock`, { isLocked: false }),
+  flagConversation: (id: string, reason: string) =>
+    api.patch(`/admin/conversations/${id}/flag`, { isFlagged: true, flagReason: reason }),
+  unflagConversation: (id: string) =>
+    api.patch(`/admin/conversations/${id}/flag`, { isFlagged: false }),
 
   // Reports
   getReports: (page = 1, limit = 20, status?: string) =>
@@ -330,8 +377,10 @@ export const adminApi = {
   },
 
   // Notifications
-  sendNotification: (data: { userId?: string; title: string; body: string; type?: string; broadcast?: boolean }) =>
+  sendNotification: (data: { userId?: string; title: string; body: string; type?: string; broadcast?: boolean; filters?: Record<string, any> }) =>
     api.post('/admin/notifications/send', data),
+  previewNotificationRecipients: (filters: Record<string, any>) =>
+    api.post('/admin/notifications/preview', filters),
 
   // Support Tickets
   getTickets: (page = 1, limit = 20, status?: string) =>
@@ -352,6 +401,8 @@ export const adminApi = {
   // Subscriptions
   getSubscriptions: (page = 1, limit = 20, plan?: string) =>
     api.get('/admin/subscriptions', { params: { page, limit, plan } }),
+  getUserSubscriptionHistory: (userId: string) =>
+    api.get(`/admin/users/${userId}/subscription-history`),
 
   // Plans
   getPlans: () => api.get('/admin/plans'),

@@ -27,7 +27,8 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { useToast } from '@/components/ui/toast'
-import type { UserDetail } from '@/types'
+import type { UserDetail, SubscriptionHistoryEntry } from '@/types'
+import { UserStatus } from '@/types'
 import { formatDate, formatDateTime } from '@/lib/utils'
 import {
   ArrowLeft,
@@ -67,6 +68,7 @@ import {
   Fingerprint,
   Activity,
   Send,
+  X,
 } from 'lucide-react'
 
 export default function UserDetailPage() {
@@ -94,6 +96,89 @@ export default function UserDetailPage() {
   const [notifDialog, setNotifDialog] = useState(false)
   const [notifForm, setNotifForm] = useState({ title: '', body: '', type: 'system' })
   const [notifLoading, setNotifLoading] = useState(false)
+
+  // Moderation dialog
+  const [modDialog, setModDialog] = useState<{ open: boolean; status: string }>({ open: false, status: '' })
+  const [modForm, setModForm] = useState({
+    reason: '',
+    moderationReasonCode: '' as string,
+    moderationReasonText: '',
+    actionRequired: '' as string,
+    supportMessage: '',
+    isUserVisible: true,
+    expiresAt: '',
+    internalAdminNote: '',
+  })
+  const [modLoading, setModLoading] = useState(false)
+
+  // Subscription history
+  const [subHistory, setSubHistory] = useState<SubscriptionHistoryEntry[]>([])
+  const [subHistoryLoading, setSubHistoryLoading] = useState(false)
+
+  // Photo moderation reason
+  const [photoModDialog, setPhotoModDialog] = useState<{ open: boolean; photoId: string; approved: boolean; isSelfie: boolean }>({ open: false, photoId: '', approved: false, isSelfie: false })
+  const [photoModReason, setPhotoModReason] = useState('')
+
+  const REASON_CODES = [
+    'IDENTITY_VERIFICATION_FAILED',
+    'SELFIE_VERIFICATION_FAILED',
+    'MARRIAGE_DOCUMENT_REQUIRED',
+    'INAPPROPRIATE_LANGUAGE',
+    'HARASSMENT_REPORT',
+    'MULTIPLE_USER_REPORTS',
+    'FAKE_PROFILE_SUSPECTED',
+    'SPAM_BEHAVIOR',
+    'POLICY_VIOLATION',
+    'UNDER_REVIEW',
+    'OTHER',
+  ]
+
+  const ACTION_OPTIONS = [
+    'REUPLOAD_IDENTITY_DOCUMENT',
+    'RETAKE_SELFIE',
+    'UPLOAD_MARRIAGE_DOCUMENT',
+    'CONTACT_SUPPORT',
+    'WAIT_FOR_REVIEW',
+    'NO_ACTION',
+    'VERIFY_PHONE',
+    'VERIFY_EMAIL',
+  ]
+
+  // Auto-suggest actionRequired when reasonCode changes
+  const autoSuggestAction = (reasonCode: string): string => {
+    const map: Record<string, string> = {
+      IDENTITY_VERIFICATION_FAILED: 'REUPLOAD_IDENTITY_DOCUMENT',
+      SELFIE_VERIFICATION_FAILED: 'RETAKE_SELFIE',
+      MARRIAGE_DOCUMENT_REQUIRED: 'UPLOAD_MARRIAGE_DOCUMENT',
+      INAPPROPRIATE_LANGUAGE: 'CONTACT_SUPPORT',
+      HARASSMENT_REPORT: 'CONTACT_SUPPORT',
+      MULTIPLE_USER_REPORTS: 'WAIT_FOR_REVIEW',
+      FAKE_PROFILE_SUSPECTED: 'WAIT_FOR_REVIEW',
+      SPAM_BEHAVIOR: 'CONTACT_SUPPORT',
+      POLICY_VIOLATION: 'CONTACT_SUPPORT',
+      UNDER_REVIEW: 'WAIT_FOR_REVIEW',
+      OTHER: 'CONTACT_SUPPORT',
+    }
+    return map[reasonCode] || 'NO_ACTION'
+  }
+
+  // Auto-suggest support message when reasonCode changes
+  const autoSuggestMessage = (reasonCode: string): string => {
+    const map: Record<string, string> = {
+      IDENTITY_VERIFICATION_FAILED: 'Your identity document was not approved. Please re-upload a clear, valid photo of your ID.',
+      SELFIE_VERIFICATION_FAILED: 'Your selfie verification did not pass. Please retake your selfie in good lighting.',
+      MARRIAGE_DOCUMENT_REQUIRED: 'To complete verification, please upload your marriage document.',
+      INAPPROPRIATE_LANGUAGE: 'Your account has been flagged for inappropriate language. Please review our community guidelines.',
+      HARASSMENT_REPORT: 'Your account has been reported for harassment. Please contact support if you believe this is an error.',
+      MULTIPLE_USER_REPORTS: 'Your account has received multiple reports and is under review. Please wait while we investigate.',
+      FAKE_PROFILE_SUSPECTED: 'Your profile has been flagged as potentially inauthentic. Please verify your identity to restore full access.',
+      SPAM_BEHAVIOR: 'Spam-like behavior has been detected on your account. Please contact support to resolve this.',
+      POLICY_VIOLATION: 'Your account has been restricted due to a policy violation. Please contact support for details.',
+      UNDER_REVIEW: 'Your account is currently under review. We will notify you once the review is complete.',
+      OTHER: 'Your account has been restricted. Please contact support for more information.',
+    }
+    return map[reasonCode] || ''
+  }
 
   // Normalize response: handle both { user, profile, photos, subscription } and flat user object
   const normalizeDetail = (data: any): UserDetail | null => {
@@ -147,6 +232,10 @@ export default function UserDetailPage() {
           status: u.status,
           trustScore: u.trustScore,
           notificationsEnabled: u.notificationsEnabled,
+          bio: d.profile?.bio || '',
+          city: d.profile?.city || '',
+          country: d.profile?.country || '',
+          dateOfBirth: d.profile?.dateOfBirth || '',
         })
       })
       .catch((err) => {
@@ -161,19 +250,44 @@ export default function UserDetailPage() {
       .then((res) => setActivity(res.data))
       .catch((err) => console.error('[UserDetail] Activity error:', err))
       .finally(() => setActivityLoading(false))
+
+    setSubHistoryLoading(true)
+    adminApi.getUserSubscriptionHistory(id)
+      .then((res) => {
+        const data = res.data
+        setSubHistory(Array.isArray(data) ? data : data?.subscriptions || data?.data || [])
+      })
+      .catch((err) => console.error('[UserDetail] Sub history error:', err))
+      .finally(() => setSubHistoryLoading(false))
   }, [id])
 
   const handleStatusChange = async (status: string) => {
     if (!id) return
-    setActionLoading(status)
+    setModDialog({ open: true, status })
+  }
+
+  const confirmStatusChange = async () => {
+    if (!id || !modDialog.status) return
+    setModLoading(true)
     try {
-      await adminApi.updateUserStatus(id, status)
+      await adminApi.updateUserStatus(id, modDialog.status, {
+        reason: modForm.reason || undefined,
+        moderationReasonCode: modForm.moderationReasonCode || undefined,
+        moderationReasonText: modForm.moderationReasonText || undefined,
+        actionRequired: modForm.actionRequired || undefined,
+        supportMessage: modForm.supportMessage || undefined,
+        isUserVisible: modForm.isUserVisible,
+        expiresAt: modForm.expiresAt || undefined,
+        internalAdminNote: modForm.internalAdminNote || undefined,
+      } as any)
       await reload()
-      toast({ title: 'Status Updated', description: `User status changed to ${status}`, variant: 'success' })
+      toast({ title: 'Status Updated', description: `User status changed to ${modDialog.status}`, variant: 'success' })
     } catch (err) {
       toast({ title: 'Error', description: 'Failed to update status', variant: 'error' })
     } finally {
-      setActionLoading('')
+      setModLoading(false)
+      setModDialog({ open: false, status: '' })
+      setModForm({ reason: '', moderationReasonCode: '', moderationReasonText: '', actionRequired: '', supportMessage: '', isUserVisible: true, expiresAt: '', internalAdminNote: '' })
     }
   }
 
@@ -258,7 +372,7 @@ export default function UserDetailPage() {
     if (!id) return
 
     try {
-      await adminApi.moderatePhoto(photoId, approved ? 'approved' : 'rejected')
+      await adminApi.moderatePhoto(photoId, approved ? 'approved' : 'rejected', photoModReason || undefined)
 
       if (isSelfieVerification) {
         await adminApi.verifySelfie(id, approved)
@@ -276,6 +390,9 @@ export default function UserDetailPage() {
       })
     } catch (err) {
       toast({ title: 'Error', description: 'Failed to moderate photo', variant: 'error' })
+    } finally {
+      setPhotoModDialog({ open: false, photoId: '', approved: false, isSelfie: false })
+      setPhotoModReason('')
     }
   }
 
@@ -314,7 +431,7 @@ export default function UserDetailPage() {
               <div className="flex items-center gap-2 flex-wrap">
                 <h2 className="text-xl font-bold">{user.firstName} {user.lastName}</h2>
                 <Badge variant={user.role === 'admin' ? 'default' : 'secondary'}>{user.role?.toUpperCase()}</Badge>
-                <Badge variant={user.status === 'active' ? 'success' : user.status === 'banned' ? 'destructive' : 'warning'}>{user.status}</Badge>
+                <Badge variant={user.status === UserStatus.ACTIVE ? 'success' : (user.status === UserStatus.BANNED || user.status === UserStatus.CLOSED) ? 'destructive' : 'warning'}>{user.status}</Badge>
                 {user.selfieVerified && <Badge variant="info">Selfie Verified</Badge>}
                 {user.isShadowBanned && <Badge variant="destructive">Shadow Banned</Badge>}
                 {user.emailVerified && <Badge variant="outline" className="text-emerald-600 border-emerald-200">Email Verified</Badge>}
@@ -341,19 +458,34 @@ export default function UserDetailPage() {
 
           {/* Quick Action Buttons */}
           <div className="flex flex-wrap gap-2 mt-4 pt-4 border-t">
-            {user.status !== 'active' && (
-              <Button size="sm" variant="outline" onClick={() => handleStatusChange('active')} disabled={!!actionLoading} className="gap-1.5">
-                <UserCheck className="h-3.5 w-3.5" /> {actionLoading === 'active' ? '...' : t('userDetail.activate')}
+            {user.status !== UserStatus.ACTIVE && (
+              <Button size="sm" variant="outline" onClick={() => handleStatusChange(UserStatus.ACTIVE)} disabled={!!actionLoading} className="gap-1.5">
+                <UserCheck className="h-3.5 w-3.5" /> {actionLoading === UserStatus.ACTIVE ? '...' : t('userDetail.activate')}
               </Button>
             )}
-            {user.status !== 'suspended' && (
-              <Button size="sm" variant="outline" onClick={() => handleStatusChange('suspended')} disabled={!!actionLoading} className="gap-1.5 text-amber-600 border-amber-200 hover:bg-amber-50">
-                <AlertTriangle className="h-3.5 w-3.5" /> {actionLoading === 'suspended' ? '...' : t('userDetail.suspend')}
+            {user.status !== UserStatus.LIMITED && (
+              <Button size="sm" variant="outline" onClick={() => handleStatusChange(UserStatus.LIMITED)} disabled={!!actionLoading} className="gap-1.5 text-yellow-600 border-yellow-200 hover:bg-yellow-50">
+                <Settings className="h-3.5 w-3.5" /> Limit
               </Button>
             )}
-            {user.status !== 'banned' && (
-              <Button size="sm" variant="outline" onClick={() => handleStatusChange('banned')} disabled={!!actionLoading} className="gap-1.5 text-red-600 border-red-200 hover:bg-red-50">
-                <Ban className="h-3.5 w-3.5" /> {actionLoading === 'banned' ? '...' : t('userDetail.ban')}
+            {user.status !== UserStatus.SUSPENDED && (
+              <Button size="sm" variant="outline" onClick={() => handleStatusChange(UserStatus.SUSPENDED)} disabled={!!actionLoading} className="gap-1.5 text-amber-600 border-amber-200 hover:bg-amber-50">
+                <AlertTriangle className="h-3.5 w-3.5" /> {actionLoading === UserStatus.SUSPENDED ? '...' : t('userDetail.suspend')}
+              </Button>
+            )}
+            {user.status !== UserStatus.SHADOW_SUSPENDED && (
+              <Button size="sm" variant="outline" onClick={() => handleStatusChange(UserStatus.SHADOW_SUSPENDED)} disabled={!!actionLoading} className="gap-1.5 text-purple-600 border-purple-200 hover:bg-purple-50">
+                <EyeOff className="h-3.5 w-3.5" /> Shadow Suspend
+              </Button>
+            )}
+            {user.status !== UserStatus.BANNED && (
+              <Button size="sm" variant="outline" onClick={() => handleStatusChange(UserStatus.BANNED)} disabled={!!actionLoading} className="gap-1.5 text-red-600 border-red-200 hover:bg-red-50">
+                <Ban className="h-3.5 w-3.5" /> {actionLoading === UserStatus.BANNED ? '...' : t('userDetail.ban')}
+              </Button>
+            )}
+            {user.status !== UserStatus.CLOSED && (
+              <Button size="sm" variant="outline" onClick={() => handleStatusChange(UserStatus.CLOSED)} disabled={!!actionLoading} className="gap-1.5 text-gray-600 border-gray-200 hover:bg-gray-50">
+                <X className="h-3.5 w-3.5" /> {actionLoading === UserStatus.CLOSED ? '...' : 'Close Account'}
               </Button>
             )}
             <Button size="sm" variant="outline" onClick={handleShadowBan} disabled={!!actionLoading} className="gap-1.5">
@@ -381,6 +513,7 @@ export default function UserDetailPage() {
           <TabsTrigger value="overview">{t('userDetail.overview')}</TabsTrigger>
           <TabsTrigger value="edit">{t('userDetail.editUser')}</TabsTrigger>
           <TabsTrigger value="activity">{t('userDetail.activity')}</TabsTrigger>
+          <TabsTrigger value="subscriptions">Subscriptions</TabsTrigger>
           <TabsTrigger value="photos">{t('userDetail.photos')} ({photos?.length || 0})</TabsTrigger>
           <TabsTrigger value="verification">{t('userDetail.verification')}</TabsTrigger>
         </TabsList>
@@ -591,6 +724,32 @@ export default function UserDetailPage() {
                   <Input type="number" min={0} max={100} value={editForm.trustScore || 0} onChange={(e) => setEditForm({ ...editForm, trustScore: parseInt(e.target.value) || 0 })} className="mt-1" />
                 </div>
               </div>
+              <div className="mt-4 border-t pt-4 max-w-2xl">
+                <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Profile Details</h4>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="sm:col-span-2">
+                    <label className="text-xs font-medium">Bio</label>
+                    <textarea
+                      className="mt-1 w-full rounded-md border px-3 py-2 text-sm min-h-[80px] resize-none focus:outline-none focus:ring-2 focus:ring-primary"
+                      value={editForm.bio || ''}
+                      onChange={(e) => setEditForm({ ...editForm, bio: e.target.value })}
+                      placeholder="User bio..."
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium">City</label>
+                    <Input value={editForm.city || ''} onChange={(e) => setEditForm({ ...editForm, city: e.target.value })} placeholder="City" className="mt-1" />
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium">Country</label>
+                    <Input value={editForm.country || ''} onChange={(e) => setEditForm({ ...editForm, country: e.target.value })} placeholder="Country" className="mt-1" />
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium">Date of Birth</label>
+                    <Input type="date" value={editForm.dateOfBirth || ''} onChange={(e) => setEditForm({ ...editForm, dateOfBirth: e.target.value })} className="mt-1" />
+                  </div>
+                </div>
+              </div>
               <div className="mt-6 flex gap-2">
                 <Button onClick={handleSaveEdit} disabled={editLoading} className="gap-2">
                   {editLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
@@ -679,6 +838,107 @@ export default function UserDetailPage() {
           )}
         </TabsContent>
 
+        {/* SUBSCRIPTION HISTORY TAB */}
+        <TabsContent value="subscriptions">
+          <div className="space-y-6">
+            {/* Current subscription summary */}
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Crown className="h-4 w-4 text-amber-500" /> Current Subscription
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {premium ? (
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      <Badge className={premium.isPremium ? 'bg-amber-500 text-white' : ''}>{premium.isPremium ? 'PREMIUM' : 'FREE'}</Badge>
+                      {premium.isExpired && <Badge variant="destructive">Expired</Badge>}
+                    </div>
+                    {premium.startDate && <p className="text-xs text-muted-foreground">Started: {formatDate(premium.startDate)}</p>}
+                    {premium.expiryDate && <p className="text-xs text-muted-foreground">Expires: {formatDate(premium.expiryDate)}</p>}
+                    {premium.isPremium && (
+                      <p className="text-xs font-medium">
+                        {premium.remainingDays > 0
+                          ? `${premium.remainingDays} days remaining`
+                          : premium.remainingDays === 0
+                            ? 'Expires today'
+                            : `${Math.abs(premium.remainingDays)} days overdue`}
+                      </p>
+                    )}
+                  </div>
+                ) : subscription ? (
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      <Badge className={subscription.plan === 'GOLD' || subscription.plan === ('gold' as any) ? 'bg-amber-500 text-white' : subscription.plan === 'PREMIUM' || subscription.plan === ('premium' as any) ? 'bg-purple-500 text-white' : ''}>
+                        {subscription.plan?.toUpperCase()}
+                      </Badge>
+                      <Badge variant={subscription.status === 'active' ? 'success' : 'secondary'}>{subscription.status}</Badge>
+                    </div>
+                    {subscription.startDate && <p className="text-xs text-muted-foreground">Started: {formatDate(subscription.startDate)}</p>}
+                    {subscription.endDate && <p className="text-xs text-muted-foreground">Expires: {formatDate(subscription.endDate)}</p>}
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground">{t('userDetail.freePlan')}</p>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Subscription history table */}
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base">Subscription History</CardTitle>
+              </CardHeader>
+              <CardContent>
+                {subHistoryLoading ? (
+                  <div className="flex h-20 items-center justify-center"><Loader2 className="h-5 w-5 animate-spin" /></div>
+                ) : subHistory.length === 0 ? (
+                  <p className="py-6 text-center text-sm text-muted-foreground">No subscription history found.</p>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b text-left text-muted-foreground">
+                          <th className="pb-2 pr-4 font-medium">Plan</th>
+                          <th className="pb-2 pr-4 font-medium">Billing</th>
+                          <th className="pb-2 pr-4 font-medium">Status</th>
+                          <th className="pb-2 pr-4 font-medium">Start</th>
+                          <th className="pb-2 pr-4 font-medium">End</th>
+                          <th className="pb-2 font-medium">Stripe</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y">
+                        {subHistory.map((sub) => (
+                          <tr key={sub.id} className="hover:bg-muted/50">
+                            <td className="py-2 pr-4">
+                              <Badge className={sub.planCode === 'gold' ? 'bg-amber-500 text-white' : sub.planCode === 'premium' ? 'bg-purple-500 text-white' : ''}>
+                                {sub.planName || sub.planCode}
+                              </Badge>
+                            </td>
+                            <td className="py-2 pr-4 capitalize text-muted-foreground">{sub.billingCycle}</td>
+                            <td className="py-2 pr-4">
+                              <Badge variant={sub.status === 'active' ? 'success' : sub.status === 'past_due' ? 'destructive' : 'secondary'}>
+                                {sub.status}
+                              </Badge>
+                            </td>
+                            <td className="py-2 pr-4 text-muted-foreground text-xs">{formatDate(sub.startDate)}</td>
+                            <td className="py-2 pr-4 text-muted-foreground text-xs">{formatDate(sub.endDate)}</td>
+                            <td className="py-2 text-xs">
+                              {sub.stripePriceId ? (
+                                <code className="bg-muted px-1.5 py-0.5 rounded text-[10px]">{sub.stripePriceId.slice(0, 16)}...</code>
+                              ) : <span className="text-muted-foreground">—</span>}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+        </TabsContent>
+
         {/* PHOTOS TAB */}
         <TabsContent value="photos">
           {photos && photos.length > 0 ? (
@@ -703,7 +963,7 @@ export default function UserDetailPage() {
                     <Button
                       size="icon"
                       className="h-7 w-7 bg-emerald-500 hover:bg-emerald-600"
-                      onClick={() => handlePhotoModeration(photo.id, true, photo.isSelfieVerification)}
+                      onClick={() => setPhotoModDialog({ open: true, photoId: photo.id, approved: true, isSelfie: photo.isSelfieVerification })}
                     >
                       <CheckCircle2 className="h-3.5 w-3.5" />
                     </Button>
@@ -711,7 +971,7 @@ export default function UserDetailPage() {
                       size="icon"
                       variant="destructive"
                       className="h-7 w-7"
-                      onClick={() => handlePhotoModeration(photo.id, false, photo.isSelfieVerification)}
+                      onClick={() => setPhotoModDialog({ open: true, photoId: photo.id, approved: false, isSelfie: photo.isSelfieVerification })}
                     >
                       <XCircle className="h-3.5 w-3.5" />
                     </Button>
@@ -952,6 +1212,162 @@ export default function UserDetailPage() {
             <Button onClick={handleSendNotification} disabled={notifLoading || !notifForm.title || !notifForm.body}>
               {notifLoading ? <Loader2 className="h-4 w-4 animate-spin me-1" /> : <Send className="h-4 w-4 me-1" />}
               {t('common.send')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Photo Moderation Dialog */}
+      <Dialog open={photoModDialog.open} onOpenChange={(open) => { if (!open) { setPhotoModDialog({ open: false, photoId: '', approved: false, isSelfie: false }); setPhotoModReason('') } }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{photoModDialog.approved ? 'Approve Photo' : 'Reject Photo'}</DialogTitle>
+            <DialogDescription>
+              {photoModDialog.approved
+                ? 'Approve this photo. Optionally add a note.'
+                : 'Reject this photo. Provide a reason for the rejection.'}
+            </DialogDescription>
+          </DialogHeader>
+          <Textarea
+            placeholder={photoModDialog.approved ? 'Optional note...' : 'Reason for rejection...'}
+            value={photoModReason}
+            onChange={(e) => setPhotoModReason(e.target.value)}
+            rows={3}
+          />
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setPhotoModDialog({ open: false, photoId: '', approved: false, isSelfie: false }); setPhotoModReason('') }}>Cancel</Button>
+            <Button
+              variant={photoModDialog.approved ? 'default' : 'destructive'}
+              onClick={() => handlePhotoModeration(photoModDialog.photoId, photoModDialog.approved, photoModDialog.isSelfie)}
+              disabled={!photoModDialog.approved && !photoModReason.trim()}
+            >
+              {photoModDialog.approved ? 'Approve' : 'Reject'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Moderation Dialog */}
+      <Dialog open={modDialog.open} onOpenChange={(open) => { if (!open) { setModDialog({ open: false, status: '' }); setModForm({ reason: '', moderationReasonCode: '', moderationReasonText: '', actionRequired: '', supportMessage: '', isUserVisible: true, expiresAt: '', internalAdminNote: '' }) } }}>
+        <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Set Status: {modDialog.status.replace(/_/g, ' ')}</DialogTitle>
+            <DialogDescription>
+              Configure the moderation action. Fields marked with * are recommended.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            {/* Reason Code * */}
+            <div>
+              <label className="text-xs font-medium">Reason Code *</label>
+              <select
+                className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
+                value={modForm.moderationReasonCode}
+                onChange={(e) => {
+                  const code = e.target.value
+                  setModForm({
+                    ...modForm,
+                    moderationReasonCode: code,
+                    actionRequired: autoSuggestAction(code),
+                    supportMessage: autoSuggestMessage(code),
+                  })
+                }}
+              >
+                <option value="">-- Select reason --</option>
+                {REASON_CODES.map((c) => <option key={c} value={c}>{c.replace(/_/g, ' ')}</option>)}
+              </select>
+            </div>
+
+            {/* Custom Reason Text */}
+            <div>
+              <label className="text-xs font-medium">Custom Reason (overrides code label)</label>
+              <Input
+                value={modForm.moderationReasonText}
+                onChange={(e) => setModForm({ ...modForm, moderationReasonText: e.target.value })}
+                placeholder="Optional custom reason text..."
+                className="mt-1"
+              />
+            </div>
+
+            {/* Action Required * */}
+            <div>
+              <label className="text-xs font-medium">Action Required *</label>
+              <select
+                className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
+                value={modForm.actionRequired}
+                onChange={(e) => setModForm({ ...modForm, actionRequired: e.target.value })}
+              >
+                <option value="">-- Select action --</option>
+                {ACTION_OPTIONS.map((a) => <option key={a} value={a}>{a.replace(/_/g, ' ')}</option>)}
+              </select>
+            </div>
+
+            {/* User-Visible Support Message */}
+            <div>
+              <label className="text-xs font-medium">Support Message (shown to user)</label>
+              <Textarea
+                value={modForm.supportMessage}
+                onChange={(e) => setModForm({ ...modForm, supportMessage: e.target.value })}
+                placeholder="Clear explanation of what happened and what the user should do..."
+                className="mt-1"
+                rows={3}
+              />
+            </div>
+
+            {/* Internal Admin Reason */}
+            <div>
+              <label className="text-xs font-medium">Internal Reason (admin only)</label>
+              <Textarea
+                value={modForm.reason}
+                onChange={(e) => setModForm({ ...modForm, reason: e.target.value })}
+                placeholder="Internal notes about why this action was taken..."
+                className="mt-1"
+                rows={2}
+              />
+            </div>
+
+            {/* Is User Visible */}
+            <div className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                id="isUserVisible"
+                checked={modForm.isUserVisible}
+                onChange={(e) => setModForm({ ...modForm, isUserVisible: e.target.checked })}
+                className="rounded"
+              />
+              <label htmlFor="isUserVisible" className="text-xs font-medium">Show moderation notice to user</label>
+            </div>
+
+            {/* Expiration Date */}
+            <div>
+              <label className="text-xs font-medium">Expiration Date (optional — auto-reverts to ACTIVE)</label>
+              <Input
+                type="datetime-local"
+                value={modForm.expiresAt}
+                onChange={(e) => setModForm({ ...modForm, expiresAt: e.target.value })}
+                className="mt-1"
+              />
+            </div>
+
+            {/* Internal Admin Note */}
+            <div>
+              <label className="text-xs font-medium">Internal Admin Note (never shown to user)</label>
+              <Textarea
+                value={modForm.internalAdminNote}
+                onChange={(e) => setModForm({ ...modForm, internalAdminNote: e.target.value })}
+                placeholder="Context, ticket #, who requested this..."
+                className="mt-1"
+                rows={2}
+              />
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setModDialog({ open: false, status: '' }); setModForm({ reason: '', moderationReasonCode: '', moderationReasonText: '', actionRequired: '', supportMessage: '', isUserVisible: true, expiresAt: '', internalAdminNote: '' }) }}>{t('common.cancel')}</Button>
+            <Button onClick={confirmStatusChange} disabled={modLoading}>
+              {modLoading ? <Loader2 className="h-4 w-4 animate-spin me-1" /> : null}
+              Confirm
             </Button>
           </DialogFooter>
         </DialogContent>
