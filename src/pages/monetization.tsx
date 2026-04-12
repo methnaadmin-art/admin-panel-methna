@@ -39,6 +39,7 @@ const BOOLEAN_FEATURES = [
 // Numeric limits for entitlements editor
 const NUMERIC_LIMITS = [
   { key: 'dailyLikes', label: 'Daily Likes', defaultVal: 10 },
+  { key: 'dailySuperLikes', label: 'Daily Super Likes', defaultVal: 0 },
   { key: 'dailyCompliments', label: 'Daily Compliments', defaultVal: 0 },
   { key: 'monthlyRewinds', label: 'Monthly Rewinds', defaultVal: 2 },
   { key: 'weeklyBoosts', label: 'Weekly Boosts', defaultVal: 0 },
@@ -52,7 +53,7 @@ const BILLING_CYCLES = [
 ]
 
 const defaultEntitlements = () => ({
-  dailyLikes: 10, dailyCompliments: 0, monthlyRewinds: 2, weeklyBoosts: 0,
+  dailyLikes: 10, dailySuperLikes: 0, dailyCompliments: 0, monthlyRewinds: 2, weeklyBoosts: 0,
   unlimitedLikes: false, unlimitedRewinds: false, advancedFilters: false,
   seeWhoLikesYou: false, readReceipts: false, typingIndicators: false,
   invisibleMode: false, passportMode: false, premiumBadge: false,
@@ -279,6 +280,7 @@ export default function MonetizationPage() {
                     )}
                     <div className="text-xs text-muted-foreground mb-2 grid grid-cols-2 gap-1">
                       <p>Likes: {formatLimit(ent.dailyLikes ?? plan.dailyLikesLimit)}/d</p>
+                      <p>Super Likes: {formatLimit(ent.dailySuperLikes ?? plan.dailySuperLikesLimit)}/d</p>
                       <p>Rewinds: {formatLimit(ent.monthlyRewinds ?? plan.monthlyRewindsLimit)}/mo</p>
                       <p>Compliments: {formatLimit(ent.dailyCompliments ?? plan.dailyComplimentsLimit)}/d</p>
                       <p>Boosts: {formatLimit(ent.weeklyBoosts ?? plan.weeklyBoostsLimit)}/wk</p>
@@ -361,8 +363,9 @@ export default function MonetizationPage() {
                     <Input type="number" value={formData.sortOrder} onChange={e => setFormData({...formData, sortOrder: Number(e.target.value)})} />
                   </div>
                   <div>
-                    <label className="text-sm font-medium">Stripe Price ID</label>
+                    <label className="text-sm font-medium">Stripe Price ID (optional)</label>
                     <Input value={formData.stripePriceId || ''} onChange={e => setFormData({...formData, stripePriceId: e.target.value || null})} placeholder="price_xxx" />
+                    <p className="text-xs text-muted-foreground mt-1">Leave empty to auto-create Stripe Product/Price on save.</p>
                   </div>
                 </div>
                 <div className="flex items-center gap-4 pt-2">
