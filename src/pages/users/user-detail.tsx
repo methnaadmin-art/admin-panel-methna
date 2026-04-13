@@ -71,6 +71,115 @@ import {
   X,
 } from 'lucide-react'
 
+const SUBSCRIPTION_DAY_MS = 24 * 60 * 60 * 1000
+
+const pickString = (...values: unknown[]) => {
+  for (const value of values) {
+    if (typeof value === 'string' && value.trim().length > 0) {
+      return value.trim()
+    }
+  }
+
+  return ''
+}
+
+const parseSafeDate = (value?: string | null) => {
+  if (!value) {
+    return null
+  }
+
+  const parsedDate = new Date(value)
+  return Number.isNaN(parsedDate.getTime()) ? null : parsedDate
+}
+
+const normalizePlanCode = (...values: unknown[]) => {
+  for (const value of values) {
+    if (typeof value === 'string' && value.trim().length > 0) {
+      return value.trim().toLowerCase()
+    }
+  }
+
+  return 'free'
+}
+
+const formatPlanLabel = (planCode?: string) => {
+  switch ((planCode || '').toLowerCase()) {
+    case 'gold':
+      return 'Gold'
+    case 'premium':
+      return 'Premium'
+    default:
+      return 'Free'
+  }
+}
+
+const getPlanBadgeClass = (planCode?: string) => {
+  switch ((planCode || '').toLowerCase()) {
+    case 'gold':
+      return 'bg-amber-500 text-white'
+    case 'premium':
+      return 'bg-purple-500 text-white'
+    default:
+      return ''
+  }
+}
+
+const deriveBillingCycle = (entry: Record<string, any>) => {
+  const explicitCycle = pickString(entry.billingCycle, entry.interval, entry.period)
+  if (explicitCycle) {
+    return explicitCycle
+  }
+
+  const startDate = parseSafeDate(pickString(entry.startDate))
+  const endDate = parseSafeDate(pickString(entry.endDate))
+
+  if (startDate && endDate) {
+    const durationDays = Math.max(1, Math.round((endDate.getTime() - startDate.getTime()) / SUBSCRIPTION_DAY_MS))
+    if (durationDays >= 330) {
+      return 'yearly'
+    }
+    if (durationDays >= 27 && durationDays <= 45) {
+      return 'monthly'
+    }
+    return `${durationDays} days`
+  }
+
+  return 'manual'
+}
+
+const normalizeSubscriptionHistoryEntry = (entry: any): SubscriptionHistoryEntry | null => {
+  if (!entry || typeof entry !== 'object') {
+    return null
+  }
+
+  const planCode = normalizePlanCode(
+    entry.planCode,
+    entry.plan,
+    entry.planEntity?.code,
+    entry.planEntity?.name,
+  )
+
+  const startDate = pickString(entry.startDate, entry.createdAt)
+  const endDate = pickString(entry.endDate, entry.expiryDate, entry.updatedAt)
+  const userId = pickString(entry.userId, entry.user?.id)
+  const createdAt = pickString(entry.createdAt, startDate, endDate) || new Date().toISOString()
+
+  return {
+    id: pickString(entry.id, entry.subscriptionId, entry.stripeSubscriptionId, `${userId || 'user'}-${createdAt}-${planCode}`),
+    userId,
+    planId: pickString(entry.planId, entry.planEntity?.id),
+    planCode,
+    planName: pickString(entry.planName, entry.planEntity?.name) || formatPlanLabel(planCode),
+    billingCycle: deriveBillingCycle(entry),
+    status: pickString(entry.status) || 'active',
+    startDate,
+    endDate,
+    stripeSubscriptionId: pickString(entry.stripeSubscriptionId),
+    stripePriceId: pickString(entry.stripePriceId, entry.paymentReference),
+    createdAt,
+  }
+}
+
 export default function UserDetailPage() {
   const { t } = useTranslation()
   const { id } = useParams<{ id: string }>()
@@ -255,7 +364,12 @@ export default function UserDetailPage() {
     adminApi.getUserSubscriptionHistory(id)
       .then((res) => {
         const data = res.data
-        setSubHistory(Array.isArray(data) ? data : data?.subscriptions || data?.data || [])
+        const rawHistory = Array.isArray(data) ? data : data?.subscriptions || data?.data || []
+        setSubHistory(
+          rawHistory
+            .map((entry: any) => normalizeSubscriptionHistoryEntry(entry))
+            .filter((entry: SubscriptionHistoryEntry | null): entry is SubscriptionHistoryEntry => Boolean(entry))
+        )
       })
       .catch((err) => console.error('[UserDetail] Sub history error:', err))
       .finally(() => setSubHistoryLoading(false))
@@ -409,6 +523,60 @@ export default function UserDetailPage() {
   }
 
   const { user, profile, photos, subscription, premium } = detail
+  const sortedSubscriptionHistory = [...subHistory].sort(
+    (left, right) => new Date(right.createdAt || right.startDate).getTime() - new Date(left.createdAt || left.startDate).getTime()
+  )
+  const currentSubscriptionView = (() => {
+    if (subscription) {
+      const planCode = normalizePlanCode(subscription.plan)
+      return {
+        planCode,
+        planLabel: formatPlanLabel(planCode),
+        status: pickString(subscription.status) || 'active',
+        startDate: pickString(subscription.startDate),
+        endDate: pickString(subscription.endDate),
+        billingCycle: 'current plan',
+      }
+    }
+
+    if (premium?.isPremium || premium?.startDate || premium?.expiryDate) {
+      return {
+        planCode: 'premium',
+        planLabel: 'Premium',
+        status: premium?.isExpired ? 'expired' : premium?.isPremium ? 'active' : 'free',
+        startDate: pickString(premium?.startDate),
+        endDate: pickString(premium?.expiryDate),
+        billingCycle: 'manual',
+      }
+    }
+
+    const activeHistory = sortedSubscriptionHistory.find((entry) => entry.status.toLowerCase() === 'active')
+    const fallbackHistory = activeHistory || sortedSubscriptionHistory[0]
+
+    if (!fallbackHistory) {
+      return null
+    }
+
+    return {
+      planCode: normalizePlanCode(fallbackHistory.planCode),
+      planLabel: fallbackHistory.planName || formatPlanLabel(fallbackHistory.planCode),
+      status: fallbackHistory.status,
+      startDate: fallbackHistory.startDate,
+      endDate: fallbackHistory.endDate,
+      billingCycle: fallbackHistory.billingCycle,
+    }
+  })()
+  const subscriptionRemainingDays = (() => {
+    const targetDate = premium?.expiryDate || currentSubscriptionView?.endDate
+    const parsedDate = parseSafeDate(targetDate)
+
+    if (!parsedDate) {
+      return null
+    }
+
+    return Math.ceil((parsedDate.getTime() - Date.now()) / SUBSCRIPTION_DAY_MS)
+  })()
+  const lastSubscriptionEvent = sortedSubscriptionHistory[0] || null
 
   return (
     <div className="space-y-6">
@@ -632,38 +800,46 @@ export default function UserDetailPage() {
                     <Crown className="h-4 w-4 text-amber-500" /> {t('userDetail.subscription')}
                   </CardTitle>
                 </CardHeader>
-                <CardContent>
-                  {premium ? (
-                    <div className="space-y-2">
-                      <div className="flex items-center gap-2">
-                        <Badge className={premium.isPremium ? 'bg-amber-500 text-white' : ''}>{premium.isPremium ? 'PREMIUM' : 'FREE'}</Badge>
-                        {premium.isExpired && <Badge variant="destructive">Expired</Badge>}
-                      </div>
-                      {premium.startDate && <p className="text-xs text-muted-foreground">Started: {formatDate(premium.startDate)}</p>}
-                      {premium.expiryDate && <p className="text-xs text-muted-foreground">Expires: {formatDate(premium.expiryDate)}</p>}
-                      {premium.isPremium && (
-                        <p className="text-xs font-medium">
-                          {premium.remainingDays > 0
-                            ? `${premium.remainingDays} days remaining`
-                            : premium.remainingDays === 0
+                <CardContent className="space-y-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge className={getPlanBadgeClass(currentSubscriptionView?.planCode || (premium?.isPremium ? 'premium' : 'free'))}>
+                      {premium?.isPremium
+                        ? currentSubscriptionView?.planLabel?.toUpperCase() || 'PREMIUM'
+                        : currentSubscriptionView
+                          ? currentSubscriptionView.planLabel.toUpperCase()
+                          : 'FREE'}
+                    </Badge>
+                    <Badge variant={premium?.isExpired ? 'destructive' : currentSubscriptionView?.status === 'active' ? 'success' : 'secondary'}>
+                      {premium?.isExpired ? 'Expired' : currentSubscriptionView?.status || 'free'}
+                    </Badge>
+                  </div>
+
+                  {currentSubscriptionView ? (
+                    <div className="space-y-2 text-xs text-muted-foreground">
+                      {currentSubscriptionView.startDate && <p>Started: {formatDate(currentSubscriptionView.startDate)}</p>}
+                      {currentSubscriptionView.endDate && <p>Expires: {formatDate(currentSubscriptionView.endDate)}</p>}
+                      <p>Billing cadence: {currentSubscriptionView.billingCycle}</p>
+                      {subscriptionRemainingDays !== null && (
+                        <p className="font-medium text-foreground">
+                          {subscriptionRemainingDays > 0
+                            ? `${subscriptionRemainingDays} days remaining`
+                            : subscriptionRemainingDays === 0
                               ? 'Expires today'
-                              : `${Math.abs(premium.remainingDays)} days overdue`}
+                              : `${Math.abs(subscriptionRemainingDays)} days overdue`}
                         </p>
                       )}
                     </div>
-                  ) : subscription ? (
-                    <div className="space-y-2">
-                      <div className="flex items-center gap-2">
-                        <Badge className={subscription.plan === 'GOLD' || subscription.plan === ('gold' as any) ? 'bg-amber-500 text-white' : subscription.plan === 'PREMIUM' || subscription.plan === ('premium' as any) ? 'bg-purple-500 text-white' : ''}>
-                          {subscription.plan?.toUpperCase()}
-                        </Badge>
-                        <Badge variant={subscription.status === 'active' ? 'success' : 'secondary'}>{subscription.status}</Badge>
-                      </div>
-                      {subscription.startDate && <p className="text-xs text-muted-foreground">Started: {formatDate(subscription.startDate)}</p>}
-                      {subscription.endDate && <p className="text-xs text-muted-foreground">Expires: {formatDate(subscription.endDate)}</p>}
-                    </div>
                   ) : (
                     <p className="text-sm text-muted-foreground">{t('userDetail.freePlan')}</p>
+                  )}
+
+                  {sortedSubscriptionHistory.length > 0 && (
+                    <div className="rounded-lg border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+                      <p>History entries: <span className="font-medium text-foreground">{sortedSubscriptionHistory.length}</span></p>
+                      {lastSubscriptionEvent?.createdAt && (
+                        <p className="mt-1">Last subscription event: {formatDate(lastSubscriptionEvent.createdAt)}</p>
+                      )}
+                    </div>
                   )}
                 </CardContent>
               </Card>
@@ -841,6 +1017,39 @@ export default function UserDetailPage() {
         {/* SUBSCRIPTION HISTORY TAB */}
         <TabsContent value="subscriptions">
           <div className="space-y-6">
+            <div className="grid gap-4 md:grid-cols-4">
+              <Card>
+                <CardContent className="p-4">
+                  <p className="text-xs uppercase tracking-wide text-muted-foreground">Current Plan</p>
+                  <p className="mt-2 text-lg font-semibold">
+                    {premium?.isPremium ? 'Premium' : currentSubscriptionView?.planLabel || 'Free'}
+                  </p>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardContent className="p-4">
+                  <p className="text-xs uppercase tracking-wide text-muted-foreground">Current Status</p>
+                  <p className="mt-2 text-lg font-semibold capitalize">
+                    {premium?.isExpired ? 'Expired' : currentSubscriptionView?.status || 'free'}
+                  </p>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardContent className="p-4">
+                  <p className="text-xs uppercase tracking-wide text-muted-foreground">History Records</p>
+                  <p className="mt-2 text-lg font-semibold">{sortedSubscriptionHistory.length}</p>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardContent className="p-4">
+                  <p className="text-xs uppercase tracking-wide text-muted-foreground">Remaining</p>
+                  <p className="mt-2 text-lg font-semibold">
+                    {subscriptionRemainingDays === null ? 'N/A' : subscriptionRemainingDays > 0 ? `${subscriptionRemainingDays}d` : subscriptionRemainingDays === 0 ? 'Today' : 'Expired'}
+                  </p>
+                </CardContent>
+              </Card>
+            </div>
+
             {/* Current subscription summary */}
             <Card>
               <CardHeader className="pb-3">
@@ -849,34 +1058,43 @@ export default function UserDetailPage() {
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                {premium ? (
-                  <div className="space-y-2">
-                    <div className="flex items-center gap-2">
-                      <Badge className={premium.isPremium ? 'bg-amber-500 text-white' : ''}>{premium.isPremium ? 'PREMIUM' : 'FREE'}</Badge>
-                      {premium.isExpired && <Badge variant="destructive">Expired</Badge>}
+                {currentSubscriptionView || premium ? (
+                  <div className="space-y-3">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Badge className={getPlanBadgeClass(currentSubscriptionView?.planCode || (premium?.isPremium ? 'premium' : 'free'))}>
+                        {premium?.isPremium
+                          ? currentSubscriptionView?.planLabel?.toUpperCase() || 'PREMIUM'
+                          : currentSubscriptionView
+                            ? currentSubscriptionView.planLabel.toUpperCase()
+                            : 'FREE'}
+                      </Badge>
+                      <Badge variant={premium?.isExpired ? 'destructive' : currentSubscriptionView?.status === 'active' ? 'success' : 'secondary'}>
+                        {premium?.isExpired ? 'Expired' : currentSubscriptionView?.status || 'free'}
+                      </Badge>
                     </div>
-                    {premium.startDate && <p className="text-xs text-muted-foreground">Started: {formatDate(premium.startDate)}</p>}
-                    {premium.expiryDate && <p className="text-xs text-muted-foreground">Expires: {formatDate(premium.expiryDate)}</p>}
-                    {premium.isPremium && (
-                      <p className="text-xs font-medium">
-                        {premium.remainingDays > 0
-                          ? `${premium.remainingDays} days remaining`
-                          : premium.remainingDays === 0
+                    <div className="grid gap-3 md:grid-cols-3">
+                      <div className="rounded-lg border bg-muted/30 p-3">
+                        <p className="text-xs uppercase tracking-wide text-muted-foreground">Started</p>
+                        <p className="mt-1 text-sm font-medium">{currentSubscriptionView?.startDate ? formatDate(currentSubscriptionView.startDate) : 'Not set'}</p>
+                      </div>
+                      <div className="rounded-lg border bg-muted/30 p-3">
+                        <p className="text-xs uppercase tracking-wide text-muted-foreground">Expires</p>
+                        <p className="mt-1 text-sm font-medium">{currentSubscriptionView?.endDate ? formatDate(currentSubscriptionView.endDate) : 'Not set'}</p>
+                      </div>
+                      <div className="rounded-lg border bg-muted/30 p-3">
+                        <p className="text-xs uppercase tracking-wide text-muted-foreground">Billing cadence</p>
+                        <p className="mt-1 text-sm font-medium capitalize">{currentSubscriptionView?.billingCycle || 'Manual'}</p>
+                      </div>
+                    </div>
+                    {subscriptionRemainingDays !== null && (
+                      <p className="text-sm font-medium">
+                        {subscriptionRemainingDays > 0
+                          ? `${subscriptionRemainingDays} days remaining`
+                          : subscriptionRemainingDays === 0
                             ? 'Expires today'
-                            : `${Math.abs(premium.remainingDays)} days overdue`}
+                            : `${Math.abs(subscriptionRemainingDays)} days overdue`}
                       </p>
                     )}
-                  </div>
-                ) : subscription ? (
-                  <div className="space-y-2">
-                    <div className="flex items-center gap-2">
-                      <Badge className={subscription.plan === 'GOLD' || subscription.plan === ('gold' as any) ? 'bg-amber-500 text-white' : subscription.plan === 'PREMIUM' || subscription.plan === ('premium' as any) ? 'bg-purple-500 text-white' : ''}>
-                        {subscription.plan?.toUpperCase()}
-                      </Badge>
-                      <Badge variant={subscription.status === 'active' ? 'success' : 'secondary'}>{subscription.status}</Badge>
-                    </div>
-                    {subscription.startDate && <p className="text-xs text-muted-foreground">Started: {formatDate(subscription.startDate)}</p>}
-                    {subscription.endDate && <p className="text-xs text-muted-foreground">Expires: {formatDate(subscription.endDate)}</p>}
                   </div>
                 ) : (
                   <p className="text-sm text-muted-foreground">{t('userDetail.freePlan')}</p>
@@ -892,7 +1110,7 @@ export default function UserDetailPage() {
               <CardContent>
                 {subHistoryLoading ? (
                   <div className="flex h-20 items-center justify-center"><Loader2 className="h-5 w-5 animate-spin" /></div>
-                ) : subHistory.length === 0 ? (
+                ) : sortedSubscriptionHistory.length === 0 ? (
                   <p className="py-6 text-center text-sm text-muted-foreground">No subscription history found.</p>
                 ) : (
                   <div className="overflow-x-auto">
@@ -908,11 +1126,11 @@ export default function UserDetailPage() {
                         </tr>
                       </thead>
                       <tbody className="divide-y">
-                        {subHistory.map((sub) => (
+                        {sortedSubscriptionHistory.map((sub) => (
                           <tr key={sub.id} className="hover:bg-muted/50">
                             <td className="py-2 pr-4">
-                              <Badge className={sub.planCode === 'gold' ? 'bg-amber-500 text-white' : sub.planCode === 'premium' ? 'bg-purple-500 text-white' : ''}>
-                                {sub.planName || sub.planCode}
+                              <Badge className={getPlanBadgeClass(sub.planCode)}>
+                                {sub.planName || formatPlanLabel(sub.planCode)}
                               </Badge>
                             </td>
                             <td className="py-2 pr-4 capitalize text-muted-foreground">{sub.billingCycle}</td>

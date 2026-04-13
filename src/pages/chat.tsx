@@ -35,6 +35,102 @@ function HighlightedText({ text, highlight }: { text: string; highlight: string 
   )
 }
 
+const isRecord = (value: unknown): value is Record<string, any> =>
+  typeof value === 'object' && value !== null
+
+const pickString = (...values: unknown[]) => {
+  for (const value of values) {
+    if (typeof value === 'string' && value.trim().length > 0) {
+      return value.trim()
+    }
+  }
+
+  return ''
+}
+
+const extractCollection = (payload: unknown): Record<string, any>[] => {
+  if (Array.isArray(payload)) {
+    return payload.filter(isRecord)
+  }
+
+  if (!isRecord(payload)) {
+    return []
+  }
+
+  for (const key of ['conversations', 'messages', 'items', 'results', 'rows', 'data']) {
+    const candidate = payload[key]
+    if (Array.isArray(candidate)) {
+      return candidate.filter(isRecord)
+    }
+    if (isRecord(candidate)) {
+      const nested = extractCollection(candidate)
+      if (nested.length > 0) {
+        return nested
+      }
+    }
+  }
+
+  return []
+}
+
+const normalizeConversation = (conversation: Record<string, any>): ConversationDetail | null => {
+  const user1 = isRecord(conversation.user1) ? conversation.user1 : isRecord(conversation.participant1) ? conversation.participant1 : undefined
+  const user2 = isRecord(conversation.user2) ? conversation.user2 : isRecord(conversation.participant2) ? conversation.participant2 : undefined
+  const id = pickString(conversation.id, conversation.conversationId)
+  const user1Id = pickString(conversation.user1Id, conversation.participant1Id, user1?.id)
+  const user2Id = pickString(conversation.user2Id, conversation.participant2Id, user2?.id)
+
+  if (!id || !user1Id || !user2Id) {
+    return null
+  }
+
+  return {
+    id,
+    matchId: pickString(conversation.matchId),
+    user1Id,
+    user2Id,
+    lastMessageContent: pickString(conversation.lastMessageContent, conversation.lastMessage?.content, conversation.lastMessage?.message),
+    lastMessageAt: pickString(conversation.lastMessageAt, conversation.lastMessage?.createdAt, conversation.updatedAt),
+    lastMessageSenderId: pickString(conversation.lastMessageSenderId, conversation.lastMessage?.senderId),
+    user1UnreadCount: Number(conversation.user1UnreadCount ?? conversation.unreadCountUser1 ?? 0),
+    user2UnreadCount: Number(conversation.user2UnreadCount ?? conversation.unreadCountUser2 ?? 0),
+    user1Muted: Boolean(conversation.user1Muted),
+    user2Muted: Boolean(conversation.user2Muted),
+    isActive: conversation.isActive !== false,
+    isLocked: Boolean(conversation.isLocked),
+    lockReason: pickString(conversation.lockReason),
+    isFlagged: Boolean(conversation.isFlagged),
+    flagReason: pickString(conversation.flagReason),
+    createdAt: pickString(conversation.createdAt, conversation.updatedAt) || new Date().toISOString(),
+    updatedAt: pickString(conversation.updatedAt, conversation.createdAt) || new Date().toISOString(),
+    user1: user1 as any,
+    user2: user2 as any,
+    lastMessage: isRecord(conversation.lastMessage) ? conversation.lastMessage as any : undefined,
+  }
+}
+
+const normalizeMessage = (message: Record<string, any>): Message | null => {
+  const id = pickString(message.id, message.messageId)
+  const conversationId = pickString(message.conversationId)
+  const senderId = pickString(message.senderId, message.sender?.id)
+
+  if (!id || !conversationId || !senderId) {
+    return null
+  }
+
+  return {
+    id,
+    conversationId,
+    senderId,
+    content: pickString(message.content, message.body, message.text, message.message) || '[No message content]',
+    type: pickString(message.type) || 'text',
+    isRead: Boolean(message.isRead ?? message.status === 'seen'),
+    isDelivered: Boolean(message.isDelivered ?? (message.status === 'delivered' || message.status === 'seen')),
+    createdAt: pickString(message.createdAt, message.sentAt) || new Date().toISOString(),
+    sender: isRecord(message.sender) ? message.sender as any : undefined,
+  }
+}
+
 export default function ChatPage() {
   const { t } = useTranslation()
   const navigate = useNavigate()
@@ -43,6 +139,7 @@ export default function ChatPage() {
   const [conversations, setConversations] = useState<ConversationDetail[]>([])
   const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
   const [page, setPage] = useState(1)
   const [search, setSearch] = useState('')
   const limit = 20
@@ -50,6 +147,7 @@ export default function ChatPage() {
   const [selectedConvo, setSelectedConvo] = useState<ConversationDetail | null>(null)
   const [messages, setMessages] = useState<Message[]>([])
   const [messagesLoading, setMessagesLoading] = useState(false)
+  const [messagesError, setMessagesError] = useState('')
   const [msgSearch, setMsgSearch] = useState('')
   const [msgPage, setMsgPage] = useState(1)
   const [msgTotal, setMsgTotal] = useState(0)
@@ -63,13 +161,33 @@ export default function ChatPage() {
 
   const fetchConversations = useCallback(async () => {
     setLoading(true)
+    setError('')
     try {
       const { data } = await adminApi.getConversations(page, limit, search || undefined)
-      const list = Array.isArray(data) ? data : data?.conversations || data?.data || []
+      const normalizedList = extractCollection(data)
+        .map((conversation) => normalizeConversation(conversation))
+        .filter((conversation): conversation is ConversationDetail => Boolean(conversation))
+      const trimmedSearch = search.trim().toLowerCase()
+      const list = trimmedSearch
+        ? normalizedList.filter((conversation) => {
+            const haystack = [
+              `${conversation.user1?.firstName || ''} ${conversation.user1?.lastName || ''}`,
+              `${conversation.user2?.firstName || ''} ${conversation.user2?.lastName || ''}`,
+              conversation.user1?.email || '',
+              conversation.user2?.email || '',
+              conversation.lastMessageContent || '',
+            ].join(' ').toLowerCase()
+
+            return haystack.includes(trimmedSearch)
+          })
+        : normalizedList
       setConversations(list)
-      setTotal(data?.total || list.length)
+      setTotal(trimmedSearch ? list.length : Number(data?.total ?? list.length))
     } catch (err) {
       console.error(err)
+      setConversations([])
+      setTotal(0)
+      setError('Unable to load conversations right now.')
     } finally {
       setLoading(false)
     }
@@ -80,13 +198,31 @@ export default function ChatPage() {
   const fetchMessages = useCallback(async () => {
     if (!selectedConvo) return
     setMessagesLoading(true)
+    setMessagesError('')
     try {
       const { data } = await adminApi.getConversationMessages(selectedConvo.id, msgPage, msgLimit, msgSearch || undefined)
-      const list = Array.isArray(data) ? data : data?.messages || data?.data || []
+      const normalizedList = extractCollection(data)
+        .map((message) => normalizeMessage(message))
+        .filter((message): message is Message => Boolean(message))
+      const trimmedSearch = msgSearch.trim().toLowerCase()
+      const list = trimmedSearch
+        ? normalizedList.filter((message) => {
+            const haystack = [
+              message.content,
+              `${message.sender?.firstName || ''} ${message.sender?.lastName || ''}`,
+              message.sender?.email || '',
+            ].join(' ').toLowerCase()
+
+            return haystack.includes(trimmedSearch)
+          })
+        : normalizedList
       setMessages(list)
-      setMsgTotal(data?.total || list.length)
+      setMsgTotal(trimmedSearch ? list.length : Number(data?.total ?? list.length))
     } catch (err) {
       console.error(err)
+      setMessages([])
+      setMsgTotal(0)
+      setMessagesError('Unable to load this conversation yet.')
     } finally {
       setMessagesLoading(false)
     }
@@ -146,6 +282,7 @@ export default function ChatPage() {
     setSelectedConvo(convo)
     setMsgSearch('')
     setMsgPage(1)
+    setMessagesError('')
   }
 
   const totalPages = Math.ceil(total / limit)
@@ -234,6 +371,11 @@ export default function ChatPage() {
         </div>
 
         {/* Chat messages - WhatsApp style */}
+        {messagesError && (
+          <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+            {messagesError}
+          </div>
+        )}
         <Card className="overflow-hidden">
           <div className="max-h-[600px] overflow-y-auto p-4 space-y-3 bg-muted/20">
             {messagesLoading ? (
@@ -403,6 +545,13 @@ export default function ChatPage() {
           {loading ? (
             <div className="flex h-40 items-center justify-center">
               <Loader2 className="h-6 w-6 animate-spin text-primary" />
+            </div>
+          ) : error ? (
+            <div className="flex flex-col items-center gap-3 py-10 text-center">
+              <p className="text-sm text-red-600">{error}</p>
+              <Button variant="outline" onClick={() => void fetchConversations()}>
+                Retry
+              </Button>
             </div>
           ) : conversations.length === 0 ? (
             <p className="py-8 text-center text-muted-foreground">{t('chat.noConversations')}</p>

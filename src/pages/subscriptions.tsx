@@ -109,6 +109,13 @@ export default function SubscriptionsPage() {
         <p className="text-muted-foreground">{t('subscriptions.subtitle')}</p>
       </div>
 
+      <div className="flex justify-end">
+        <Button variant="outline" className="gap-2" onClick={() => navigate('/subscriptions/finance')}>
+          <Crown className="h-4 w-4" />
+          Open Finance Screen
+        </Button>
+      </div>
+
       {/* Plan Breakdown */}
       <div className="grid gap-4 sm:grid-cols-4">
         <Card className="cursor-pointer hover:border-primary/50 transition-colors" onClick={() => { setPlanFilter('free'); setPage(1) }}>

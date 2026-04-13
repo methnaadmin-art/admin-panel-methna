@@ -114,6 +114,31 @@ const getSearchText = (params: Record<string, any>) => {
   return undefined
 }
 
+const extractCollection = (payload: any): any[] => {
+  if (Array.isArray(payload)) {
+    return payload
+  }
+
+  if (!payload || typeof payload !== 'object') {
+    return []
+  }
+
+  for (const key of ['subscriptions', 'conversations', 'messages', 'users', 'items', 'results', 'rows', 'data']) {
+    const candidate = payload[key]
+    if (Array.isArray(candidate)) {
+      return candidate
+    }
+    if (candidate && typeof candidate === 'object') {
+      const nested = extractCollection(candidate)
+      if (nested.length > 0) {
+        return nested
+      }
+    }
+  }
+
+  return []
+}
+
 export default api
 
 // ── Auth ─────────────────────────────────────────────────────
@@ -326,10 +351,36 @@ export const adminApi = {
     api.get('/admin/matches', { params: { page, limit } }),
 
   // Conversations
-  getConversations: (page = 1, limit = 20, search?: string) =>
-    api.get('/admin/conversations', { params: { page, limit, search: search || undefined } }),
-  getConversationMessages: (id: string, page = 1, limit = 50, search?: string) =>
-    api.get(`/admin/conversations/${id}/messages`, { params: { page, limit, search: search || undefined } }),
+  getConversations: (page = 1, limit = 20, search?: string) => {
+    const trimmedSearch = typeof search === 'string' ? search.trim() : ''
+    const requests = trimmedSearch
+      ? [
+          () => api.get('/admin/conversations', { params: { page, limit, search: trimmedSearch } }),
+          () => api.get('/admin/conversations', { params: { page, limit, q: trimmedSearch } }),
+          () => api.get('/admin/conversations', { params: { page, limit, query: trimmedSearch } }),
+          () => api.get('/admin/conversations', { params: { page, limit } }),
+        ]
+      : [
+          () => api.get('/admin/conversations', { params: { page, limit } }),
+        ]
+
+    return tryApiRequests(requests)
+  },
+  getConversationMessages: (id: string, page = 1, limit = 50, search?: string) => {
+    const trimmedSearch = typeof search === 'string' ? search.trim() : ''
+    const requests = trimmedSearch
+      ? [
+          () => api.get(`/admin/conversations/${id}/messages`, { params: { page, limit, search: trimmedSearch } }),
+          () => api.get(`/admin/conversations/${id}/messages`, { params: { page, limit, q: trimmedSearch } }),
+          () => api.get(`/admin/conversations/${id}/messages`, { params: { page, limit, query: trimmedSearch } }),
+          () => api.get(`/admin/conversations/${id}/messages`, { params: { page, limit } }),
+        ]
+      : [
+          () => api.get(`/admin/conversations/${id}/messages`, { params: { page, limit } }),
+        ]
+
+    return tryApiRequests(requests)
+  },
   lockConversation: (id: string, reason: string) =>
     api.patch(`/admin/conversations/${id}/lock`, { isLocked: true, lockReason: reason }),
   unlockConversation: (id: string) =>
@@ -399,13 +450,59 @@ export const adminApi = {
     api.get('/admin/boosts', { params: { page, limit } }),
 
   // Subscriptions
-  getSubscriptions: (page = 1, limit = 20, plan?: string) =>
-    api.get('/admin/subscriptions', { params: { page, limit, plan } }),
-  getUserSubscriptionHistory: (userId: string) =>
-    api.get(`/admin/users/${userId}/subscription-history`),
+  getSubscriptions: (page = 1, limit = 20, plan?: string, userId?: string) =>
+    tryApiRequests([
+      () => api.get('/admin/subscriptions', { params: { page, limit, plan, userId } }),
+      () => api.get('/admin/subscriptions', { params: { page, limit, plan, id: userId } }),
+      () => api.get('/admin/subscriptions', { params: { page, limit, plan } }),
+    ]),
+  getUserSubscriptionHistory: async (userId: string) => {
+    try {
+      return await tryApiRequests([
+        () => api.get(`/admin/users/${userId}/subscription-history`),
+        () => api.get(`/admin/users/${userId}/subscriptions`),
+      ])
+    } catch (primaryError) {
+      let currentPage = 1
+      let totalPages = 1
+      const filteredSubscriptions: any[] = []
+
+      while (currentPage <= totalPages && currentPage <= 6) {
+        const response = await api.get('/admin/subscriptions', {
+          params: { page: currentPage, limit: 100 },
+        })
+
+        const items = extractCollection(response.data).filter((subscription) => {
+          if (!subscription || typeof subscription !== 'object') {
+            return false
+          }
+
+          return subscription.userId === userId || subscription.user?.id === userId
+        })
+
+        filteredSubscriptions.push(...items)
+
+        const total = Number(response.data?.total ?? response.data?.pagination?.total ?? items.length)
+        totalPages = total > 0 ? Math.ceil(total / 100) : currentPage
+        currentPage += 1
+      }
+
+      if (filteredSubscriptions.length === 0) {
+        throw primaryError
+      }
+
+      return {
+        data: filteredSubscriptions,
+      }
+    }
+  },
 
   // Plans
-  getPlans: () => api.get('/admin/plans'),
+  getPlans: () =>
+    tryApiRequests([
+      () => api.get('/admin/plans'),
+      () => api.get('/subscriptions/plans'),
+    ]),
   createPlan: (data: Record<string, any>) => api.post('/admin/plans', data),
   updatePlan: (id: string, data: Record<string, any>) => api.put(`/admin/plans/${id}`, data),
   deletePlan: (id: string) => api.delete(`/admin/plans/${id}`),

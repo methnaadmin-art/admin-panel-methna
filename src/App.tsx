@@ -24,6 +24,7 @@ const ActivityPage = lazy(() => import('@/pages/activity'))
 const SupportPage = lazy(() => import('@/pages/support'))
 const AdsPage = lazy(() => import('@/pages/ads'))
 const SubscriptionsPage = lazy(() => import('@/pages/subscriptions'))
+const SubscriptionFinancePage = lazy(() => import('@/pages/subscription-finance'))
 const SendNotificationsPage = lazy(() => import('@/pages/send-notifications'))
 const VerificationPage = lazy(() => import('@/pages/verification'))
 const AuditLogsPage = lazy(() => import('@/pages/audit-logs'))
@@ -65,6 +66,7 @@ export default function App() {
                   <Route path="/support" element={<SupportPage />} />
                   <Route path="/ads" element={<AdsPage />} />
                   <Route path="/subscriptions" element={<SubscriptionsPage />} />
+                  <Route path="/subscriptions/finance" element={<SubscriptionFinancePage />} />
                   <Route path="/send-notifications" element={<SendNotificationsPage />} />
                   <Route path="/analytics" element={<AnalyticsPage />} />
                   <Route path="/trust-safety" element={<TrustSafetyPage />} />

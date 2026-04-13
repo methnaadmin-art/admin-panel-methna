@@ -232,7 +232,7 @@ const userStatusBadge = (status: string) => {
 
 const verificationStatusBadge = (status: 'pending' | 'approved' | 'rejected') => {
   if (status === 'approved') {
-    return <Badge variant="success">Approved</Badge>
+    return <Badge variant="success">Verified</Badge>
   }
 
   if (status === 'rejected') {
@@ -493,6 +493,16 @@ export default function VerificationPage() {
   }
 
   const handleSelfieDecision = async (userId: string, approved: boolean) => {
+    const currentUser = selfieUsers.find((user) => user.id === userId)
+    if (currentUser?.verificationStatus === 'approved' && !approved) {
+      toast({
+        title: 'Already verified',
+        description: 'This selfie is already verified and locked. Ask the user to re-upload if it needs review again.',
+        variant: 'warning',
+      })
+      return
+    }
+
     const actionKey = `selfie:${userId}`
     setActionLoading(actionKey)
 
@@ -518,6 +528,16 @@ export default function VerificationPage() {
   }
 
   const handleMaritalDecision = async (userId: string, approved: boolean) => {
+    const currentUser = maritalUsers.find((user) => user.id === userId)
+    if (currentUser?.verificationStatus === 'approved' && !approved) {
+      toast({
+        title: 'Already verified',
+        description: 'This document is already verified and locked. Ask the user to upload a new document for another review.',
+        variant: 'warning',
+      })
+      return
+    }
+
     const actionKey = `marital:${userId}`
     setActionLoading(actionKey)
 
@@ -691,33 +711,45 @@ export default function VerificationPage() {
                       Uploaded {formatSubmittedAt(user.createdAt)}
                     </p>
 
-                    <div className="grid grid-cols-2 gap-2">
-                      <Button
-                        className="gap-2 bg-emerald-500 text-white hover:bg-emerald-600"
-                        disabled={actionLoading === `selfie:${user.id}`}
-                        onClick={() => void handleSelfieDecision(user.id, true)}
-                      >
-                        {actionLoading === `selfie:${user.id}` ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                        ) : (
-                          <CheckCircle2 className="h-4 w-4" />
-                        )}
-                        Approve
-                      </Button>
-                      <Button
-                        variant="destructive"
-                        className="gap-2"
-                        disabled={actionLoading === `selfie:${user.id}`}
-                        onClick={() => void handleSelfieDecision(user.id, false)}
-                      >
-                        {actionLoading === `selfie:${user.id}` ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                        ) : (
-                          <XCircle className="h-4 w-4" />
-                        )}
-                        Reject
-                      </Button>
-                    </div>
+                    {user.verificationStatus === 'pending' ? (
+                      <div className="grid grid-cols-2 gap-2">
+                        <Button
+                          className="gap-2 bg-emerald-500 text-white hover:bg-emerald-600"
+                          disabled={actionLoading === `selfie:${user.id}`}
+                          onClick={() => void handleSelfieDecision(user.id, true)}
+                        >
+                          {actionLoading === `selfie:${user.id}` ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <CheckCircle2 className="h-4 w-4" />
+                          )}
+                          Approve
+                        </Button>
+                        <Button
+                          variant="destructive"
+                          className="gap-2"
+                          disabled={actionLoading === `selfie:${user.id}`}
+                          onClick={() => void handleSelfieDecision(user.id, false)}
+                        >
+                          {actionLoading === `selfie:${user.id}` ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <XCircle className="h-4 w-4" />
+                          )}
+                          Reject
+                        </Button>
+                      </div>
+                    ) : user.verificationStatus === 'approved' ? (
+                      <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900">
+                        <p className="font-medium">Verified and locked</p>
+                        <p className="mt-1 text-xs text-emerald-700">This selfie cannot be rejected anymore unless the user submits a new upload.</p>
+                      </div>
+                    ) : (
+                      <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-900">
+                        <p className="font-medium">Rejected</p>
+                        <p className="mt-1 text-xs text-red-700">Waiting for a new selfie upload before another review can happen.</p>
+                      </div>
+                    )}
                   </CardContent>
                 </Card>
               ))}
@@ -798,33 +830,45 @@ export default function VerificationPage() {
                       Uploaded {formatSubmittedAt(user.createdAt)}
                     </p>
 
-                    <div className="grid grid-cols-2 gap-2">
-                      <Button
-                        className="gap-2 bg-emerald-500 text-white hover:bg-emerald-600"
-                        disabled={actionLoading === `marital:${user.id}`}
-                        onClick={() => void handleMaritalDecision(user.id, true)}
-                      >
-                        {actionLoading === `marital:${user.id}` ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                        ) : (
-                          <CheckCircle2 className="h-4 w-4" />
-                        )}
-                        Approve
-                      </Button>
-                      <Button
-                        variant="destructive"
-                        className="gap-2"
-                        disabled={actionLoading === `marital:${user.id}`}
-                        onClick={() => void handleMaritalDecision(user.id, false)}
-                      >
-                        {actionLoading === `marital:${user.id}` ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                        ) : (
-                          <XCircle className="h-4 w-4" />
-                        )}
-                        Reject
-                      </Button>
-                    </div>
+                    {user.verificationStatus === 'pending' ? (
+                      <div className="grid grid-cols-2 gap-2">
+                        <Button
+                          className="gap-2 bg-emerald-500 text-white hover:bg-emerald-600"
+                          disabled={actionLoading === `marital:${user.id}`}
+                          onClick={() => void handleMaritalDecision(user.id, true)}
+                        >
+                          {actionLoading === `marital:${user.id}` ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <CheckCircle2 className="h-4 w-4" />
+                          )}
+                          Approve
+                        </Button>
+                        <Button
+                          variant="destructive"
+                          className="gap-2"
+                          disabled={actionLoading === `marital:${user.id}`}
+                          onClick={() => void handleMaritalDecision(user.id, false)}
+                        >
+                          {actionLoading === `marital:${user.id}` ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <XCircle className="h-4 w-4" />
+                          )}
+                          Reject
+                        </Button>
+                      </div>
+                    ) : user.verificationStatus === 'approved' ? (
+                      <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900">
+                        <p className="font-medium">Verified and locked</p>
+                        <p className="mt-1 text-xs text-emerald-700">This document is verified. It stays locked unless the user uploads a new one.</p>
+                      </div>
+                    ) : (
+                      <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-900">
+                        <p className="font-medium">Rejected</p>
+                        <p className="mt-1 text-xs text-red-700">Waiting for a replacement marital document before another review.</p>
+                      </div>
+                    )}
                   </CardContent>
                 </Card>
               ))}

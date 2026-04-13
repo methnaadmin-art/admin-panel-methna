@@ -1021,30 +1021,17 @@ export default function UsersPage() {
                             </Avatar>
                             <div>
                               <p className="font-medium">{firstString(user.firstName, user.name)} {user.lastName || ''}</p>
-                              {user.isShadowBanned && (
-                                <Badge variant="destructive" className="text-[10px] px-1.5 py-0">Shadow Banned</Badge>
-                              )}
+                              <p className="text-xs text-muted-foreground">{user.id}</p>
                             </div>
                           </div>
                         </td>
                         <td className="py-3 pr-4 text-muted-foreground">{user.email}</td>
                         <td className="py-3 pr-4">
-                          <div className="space-y-2">
+                          <div className="space-y-1">
                             {statusBadge(user.status)}
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="h-7 px-2 text-xs"
-                              onClick={() =>
-                                setStatusDialog({
-                                  open: true,
-                                  user,
-                                  newStatus: normalizeUserStatus(user.status) || 'active',
-                                })
-                              }
-                            >
-                              Set Status
-                            </Button>
+                            {user.isShadowBanned && (
+                              <p className="text-xs text-amber-600">Visibility limited by trust & safety</p>
+                            )}
                           </div>
                         </td>
                         <td className="py-3 pr-4">
@@ -1070,28 +1057,31 @@ export default function UsersPage() {
                           {formatDateTime(user.createdAt)}
                         </td>
                         <td className="py-3 text-right">
-                          <div className="flex items-center justify-end gap-1">
+                          <div className="flex items-center justify-end gap-2">
                             <Button size="icon" variant="ghost" onClick={() => navigate(`/users/${user.id}`)}>
                               <Eye className="h-4 w-4" />
-                            </Button>
-                            <Button size="sm" variant="outline" onClick={() => openPremiumDialog(user)}>
-                              Premium
                             </Button>
 
                             <DropdownMenu>
                               <DropdownMenuTrigger asChild>
-                                <Button size="icon" variant="ghost">
+                                <Button size="sm" variant="outline" className="gap-2">
                                   {rowActionLoading.startsWith(`selfie:${user.id}`) || rowActionLoading.startsWith(`marital:${user.id}`)
                                     ? <Loader2 className="h-4 w-4 animate-spin" />
                                     : <MoreHorizontal className="h-4 w-4" />}
+                                  Manage
                                 </Button>
                               </DropdownMenuTrigger>
-                              <DropdownMenuContent align="end" className="w-56">
-                                <DropdownMenuLabel>User Actions</DropdownMenuLabel>
+                              <DropdownMenuContent align="end" className="w-64">
+                                <DropdownMenuLabel>Account Controls</DropdownMenuLabel>
                                 <DropdownMenuItem onSelect={() => navigate(`/users/${user.id}`)}>
                                   View Profile
                                 </DropdownMenuItem>
                                 <DropdownMenuSeparator />
+                                <DropdownMenuItem onSelect={() => openPremiumDialog(user)}>
+                                  Manage Premium
+                                </DropdownMenuItem>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuLabel>Status Control</DropdownMenuLabel>
                                 {USER_STATUS_OPTIONS.map((option) => (
                                   <DropdownMenuItem
                                     key={option.value}
@@ -1101,26 +1091,39 @@ export default function UsersPage() {
                                   </DropdownMenuItem>
                                 ))}
                                 <DropdownMenuSeparator />
-                                <DropdownMenuItem onSelect={() => openPremiumDialog(user)}>
-                                  Set Premium
-                                </DropdownMenuItem>
-                                <DropdownMenuSeparator />
-                                <DropdownMenuItem onSelect={() => { void handleVerifySelfie(user, true) }}>
-                                  <CheckCircle2 className="mr-2 h-4 w-4 text-emerald-600" />
-                                  Approve Selfie
-                                </DropdownMenuItem>
-                                <DropdownMenuItem onSelect={() => { void handleVerifySelfie(user, false) }}>
-                                  <XCircle className="mr-2 h-4 w-4 text-red-600" />
-                                  Reject Selfie
-                                </DropdownMenuItem>
-                                <DropdownMenuItem onSelect={() => { void handleVerifyMarital(user, true) }}>
-                                  <CheckCircle2 className="mr-2 h-4 w-4 text-emerald-600" />
-                                  Approve Marital
-                                </DropdownMenuItem>
-                                <DropdownMenuItem onSelect={() => { void handleVerifyMarital(user, false) }}>
-                                  <XCircle className="mr-2 h-4 w-4 text-red-600" />
-                                  Reject Marital
-                                </DropdownMenuItem>
+                                <DropdownMenuLabel>Verification Queue</DropdownMenuLabel>
+                                {selfieStatus === 'pending' ? (
+                                  <>
+                                    <DropdownMenuItem onSelect={() => { void handleVerifySelfie(user, true) }}>
+                                      <CheckCircle2 className="mr-2 h-4 w-4 text-emerald-600" />
+                                      Approve Selfie
+                                    </DropdownMenuItem>
+                                    <DropdownMenuItem onSelect={() => { void handleVerifySelfie(user, false) }}>
+                                      <XCircle className="mr-2 h-4 w-4 text-red-600" />
+                                      Reject Selfie
+                                    </DropdownMenuItem>
+                                  </>
+                                ) : (
+                                  <DropdownMenuItem disabled>
+                                    {selfieStatus === 'approved' ? 'Selfie already verified' : selfieStatus === 'rejected' ? 'Selfie already rejected' : 'No selfie pending'}
+                                  </DropdownMenuItem>
+                                )}
+                                {maritalStatus === 'pending' ? (
+                                  <>
+                                    <DropdownMenuItem onSelect={() => { void handleVerifyMarital(user, true) }}>
+                                      <CheckCircle2 className="mr-2 h-4 w-4 text-emerald-600" />
+                                      Approve Marital
+                                    </DropdownMenuItem>
+                                    <DropdownMenuItem onSelect={() => { void handleVerifyMarital(user, false) }}>
+                                      <XCircle className="mr-2 h-4 w-4 text-red-600" />
+                                      Reject Marital
+                                    </DropdownMenuItem>
+                                  </>
+                                ) : (
+                                  <DropdownMenuItem disabled>
+                                    {maritalStatus === 'approved' ? 'Marital document already verified' : maritalStatus === 'rejected' ? 'Marital document already rejected' : 'No marital document pending'}
+                                  </DropdownMenuItem>
+                                )}
                                 <DropdownMenuSeparator />
                                 <DropdownMenuItem
                                   className="text-red-600 focus:text-red-600"

@@ -103,6 +103,7 @@ const navSections: NavSection[] = [
     icon: CreditCard,
     items: [
       { to: '/subscriptions', labelKey: 'nav.subscriptions', icon: Crown },
+      { to: '/subscriptions/finance', labelKey: 'Subscription Finance', icon: CreditCard },
       { to: '/monetization', labelKey: 'nav.monetization', icon: CreditCard },
       { to: '/ads', labelKey: 'nav.adCampaigns', icon: Megaphone },
     ],
@@ -132,13 +133,15 @@ export function Sidebar() {
   })
   const [badges, setBadges] = useState<Record<string, number>>({})
   const isRtl = i18n.language === 'ar'
+  const isPathActive = (to: string) =>
+    location.pathname === to || (to !== '/' && location.pathname.startsWith(`${to}/`))
 
   // Determine which section is active and auto-expand it
   useEffect(() => {
     const active: Record<string, boolean> = {}
     navSections.forEach((section) => {
       const hasActive = section.items.some(
-        (item) => location.pathname === item.to || (item.to !== '/' && location.pathname.startsWith(item.to))
+        (item) => isPathActive(item.to)
       )
       if (hasActive) active[section.titleKey] = true
     })
@@ -194,7 +197,7 @@ export function Sidebar() {
           {navSections.map((section) => {
             const isOpen = openSections[section.titleKey] ?? false
             const sectionHasActive = section.items.some(
-              (item) => location.pathname === item.to || (item.to !== '/' && location.pathname.startsWith(item.to))
+              (item) => isPathActive(item.to)
             )
             const sectionBadgeTotal = section.items.reduce((sum, item) => sum + (badges[item.to] || 0), 0)
 
@@ -226,8 +229,7 @@ export function Sidebar() {
 
                 <div className={cn('space-y-0.5 overflow-hidden transition-all', collapsed ? '' : isOpen ? 'max-h-96' : 'max-h-0')}>
                   {section.items.map((item) => {
-                    const isActive = location.pathname === item.to ||
-                      (item.to !== '/' && location.pathname.startsWith(item.to))
+                    const isActive = isPathActive(item.to)
                     const badge = badges[item.to] || 0
 
                     const link = (
