@@ -817,7 +817,7 @@ export default function TrustSafetyPage() {
                 </section>
               </div>
 
-              <aside className="border-t bg-slate-50/60 p-6 sm:p-8 lg:border-l lg:border-t-0">
+              <aside className="relative border-t bg-slate-50/60 p-6 sm:p-8 lg:border-l lg:border-t-0">
                 <div className="space-y-6 lg:sticky lg:top-0">
                   <section className="rounded-2xl border bg-background p-5 shadow-sm">
                     <div className="space-y-1">
@@ -899,19 +899,21 @@ export default function TrustSafetyPage() {
                     </section>
                   )}
 
-                  <DialogFooter className="gap-2 sm:justify-stretch sm:space-x-0">
-                    <Button
-                      variant="outline"
-                      className="rounded-xl"
-                      onClick={() => setResolveDialog({ open: false, flag: null })}
-                    >
-                      {t('common.cancel')}
-                    </Button>
-                    <Button className="rounded-xl" onClick={handleResolve} disabled={resolveLoading}>
-                      {resolveLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle className="mr-2 h-4 w-4" />}
-                      {t('common.submit')}
-                    </Button>
-                  </DialogFooter>
+                  <div className="sticky bottom-0 -mx-6 -mb-6 border-t bg-slate-50/95 px-6 py-4 backdrop-blur sm:-mx-8 sm:-mb-8 sm:px-8">
+                    <DialogFooter className="gap-2 sm:justify-stretch sm:space-x-0">
+                      <Button
+                        variant="outline"
+                        className="rounded-xl"
+                        onClick={() => setResolveDialog({ open: false, flag: null })}
+                      >
+                        {t('common.cancel')}
+                      </Button>
+                      <Button className="rounded-xl" onClick={handleResolve} disabled={resolveLoading}>
+                        {resolveLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle className="mr-2 h-4 w-4" />}
+                        {t('common.submit')}
+                      </Button>
+                    </DialogFooter>
+                  </div>
                 </div>
               </aside>
             </div>

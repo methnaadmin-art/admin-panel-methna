@@ -40,6 +40,7 @@ import {
 } from 'lucide-react'
 import { useState, useEffect } from 'react'
 import { adminApi } from '@/lib/api'
+import methnaLogo from '@/assets/methna-logo.png'
 
 interface NavItem {
   to: string
@@ -173,19 +174,20 @@ export function Sidebar() {
     <TooltipProvider delayDuration={0}>
       <aside
         className={cn(
-          'flex h-screen flex-col border-e bg-sidebar text-sidebar-foreground transition-all duration-300 select-none',
+          'flex h-screen flex-col border-e border-white/10 bg-sidebar bg-[radial-gradient(circle_at_top,_rgba(255,132,197,0.16),_transparent_24%),radial-gradient(circle_at_top_right,_rgba(255,150,102,0.14),_transparent_18%)] text-sidebar-foreground transition-all duration-300 select-none',
           collapsed ? 'w-[68px]' : 'w-[272px]'
         )}
       >
         {/* Logo */}
-        <div className="flex h-16 items-center gap-3 px-4 shrink-0">
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-primary to-emerald-400 shadow-lg shadow-primary/20">
-            <Heart className="h-5 w-5 text-white" />
+        <div className="flex h-20 items-center gap-3 px-4 shrink-0">
+          <div className="relative flex h-11 w-11 shrink-0 items-center justify-center rounded-[1.35rem] border border-white/10 bg-white/10 shadow-[0_16px_34px_rgba(216,51,255,0.25)] backdrop-blur-sm">
+            <div className="absolute inset-0 rounded-[1.35rem] bg-[radial-gradient(circle_at_30%_30%,rgba(255,255,255,0.28),transparent_58%),linear-gradient(145deg,rgba(209,58,255,0.45),rgba(255,124,199,0.22),rgba(255,147,94,0.24))]" />
+            <img src={methnaLogo} alt="Methna logo" className="relative h-10 w-10 object-contain drop-shadow-[0_10px_22px_rgba(235,62,255,0.45)]" />
           </div>
           {!collapsed && (
             <div className="flex flex-col overflow-hidden">
-              <span className="text-sm font-bold tracking-tight">{t('app.name')}</span>
-              <span className="text-[10px] text-sidebar-foreground/50 font-medium">{t('app.subtitle')}</span>
+              <span className="text-sm font-bold tracking-[0.02em]">{t('app.name')}</span>
+              <span className="text-[10px] font-medium uppercase tracking-[0.28em] text-sidebar-foreground/45">{t('app.subtitle')}</span>
             </div>
           )}
         </div>

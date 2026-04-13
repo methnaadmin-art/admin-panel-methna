@@ -5,7 +5,8 @@ import { useAuth } from '@/contexts/auth-context'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Heart, Loader2 } from 'lucide-react'
+import { Loader2 } from 'lucide-react'
+import methnaLogo from '@/assets/methna-logo.png'
 
 export default function LoginPage() {
   const { t } = useTranslation()
@@ -32,11 +33,12 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 p-4">
-      <Card className="w-full max-w-md shadow-2xl">
+    <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-[linear-gradient(180deg,#736d73_0%,#635d66_45%,#59545c_100%)] p-4">
+      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_32%_24%,rgba(221,82,255,0.26),transparent_20%),radial-gradient(circle_at_68%_20%,rgba(255,164,106,0.24),transparent_18%),radial-gradient(circle_at_50%_48%,rgba(245,113,206,0.12),transparent_28%)]" />
+      <Card className="relative w-full max-w-md border-white/25 bg-white/88 shadow-[0_24px_70px_rgba(57,17,83,0.28)] backdrop-blur-xl">
         <CardHeader className="text-center">
-          <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-primary shadow-lg">
-            <Heart className="h-7 w-7 text-white" />
+          <div className="mx-auto mb-4 flex h-20 w-20 items-center justify-center rounded-[1.75rem] border border-white/45 bg-white/70 shadow-[0_18px_40px_rgba(226,82,255,0.32)]">
+            <img src={methnaLogo} alt="Methna logo" className="h-16 w-16 object-contain" />
           </div>
           <CardTitle className="text-2xl">{t('login.title')}</CardTitle>
           <CardDescription>{t('login.subtitle')}</CardDescription>
