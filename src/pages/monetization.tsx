@@ -38,7 +38,7 @@ const BOOLEAN_FEATURES = [
 
 // Numeric limits for entitlements editor
 const NUMERIC_LIMITS = [
-  { key: 'dailyLikes', label: 'Daily Likes', defaultVal: 10 },
+  { key: 'dailyLikes', label: 'Daily Likes', defaultVal: 25 },
   { key: 'dailySuperLikes', label: 'Daily Super Likes', defaultVal: 0 },
   { key: 'dailyCompliments', label: 'Daily Compliments', defaultVal: 0 },
   { key: 'monthlyRewinds', label: 'Monthly Rewinds', defaultVal: 2 },
@@ -53,7 +53,7 @@ const BILLING_CYCLES = [
 ]
 
 const defaultEntitlements = () => ({
-  dailyLikes: 10, dailySuperLikes: 0, dailyCompliments: 0, monthlyRewinds: 2, weeklyBoosts: 0,
+  dailyLikes: 25, dailySuperLikes: 0, dailyCompliments: 0, monthlyRewinds: 2, weeklyBoosts: 0,
   unlimitedLikes: false, unlimitedRewinds: false, advancedFilters: false,
   seeWhoLikesYou: false, readReceipts: false, typingIndicators: false,
   invisibleMode: false, passportMode: false, premiumBadge: false,
@@ -63,11 +63,11 @@ const defaultEntitlements = () => ({
 
 const defaultFormData = () => ({
   code: '', name: '', description: '', price: 0, currency: 'usd',
-  billingCycle: 'monthly', stripePriceId: '', durationDays: 30,
+  billingCycle: 'monthly', stripePriceId: '', googleProductId: '', durationDays: 30,
   isActive: true, isVisible: true, sortOrder: 0,
   entitlements: defaultEntitlements(),
   features: [],
-  dailyLikesLimit: 10, dailySuperLikesLimit: 0, dailyComplimentsLimit: 0,
+  dailyLikesLimit: 25, dailySuperLikesLimit: 0, dailyComplimentsLimit: 0,
   monthlyRewindsLimit: 2, weeklyBoostsLimit: 0,
 })
 
@@ -276,7 +276,10 @@ export default function MonetizationPage() {
                   </CardHeader>
                   <CardContent className="pt-4 h-64 overflow-y-auto">
                     {plan.stripePriceId && (
-                      <p className="text-xs text-muted-foreground mb-2 font-mono">Stripe: {plan.stripePriceId}</p>
+                      <p className="text-xs text-muted-foreground mb-1 font-mono">Stripe: {plan.stripePriceId}</p>
+                    )}
+                    {plan.googleProductId && (
+                      <p className="text-xs text-muted-foreground mb-2 font-mono">Google Play: {plan.googleProductId}</p>
                     )}
                     <div className="text-xs text-muted-foreground mb-2 grid grid-cols-2 gap-1">
                       <p>Likes: {formatLimit(ent.dailyLikes ?? plan.dailyLikesLimit)}/d</p>
@@ -353,7 +356,7 @@ export default function MonetizationPage() {
                     </Select>
                   </div>
                 </div>
-                <div className="grid grid-cols-3 gap-4">
+                <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="text-sm font-medium">Duration (Days)</label>
                     <Input type="number" value={formData.durationDays} onChange={e => setFormData({...formData, durationDays: Number(e.target.value)})} />
@@ -367,6 +370,11 @@ export default function MonetizationPage() {
                     <Input value={formData.stripePriceId || ''} onChange={e => setFormData({...formData, stripePriceId: e.target.value || null})} placeholder="price_xxx" />
                     <p className="text-xs text-muted-foreground mt-1">Leave empty to auto-create Stripe Product/Price on save.</p>
                   </div>
+                  <div>
+                    <label className="text-sm font-medium">Google Play Product ID (optional)</label>
+                    <Input value={formData.googleProductId || ''} onChange={e => setFormData({...formData, googleProductId: e.target.value || null})} placeholder="com.methna.app.premium_monthly" />
+                    <p className="text-xs text-muted-foreground mt-1">The in-app product ID from Google Play Console. Must match the subscription product ID exactly.</p>
+                  </div>
                 </div>
                 <div className="flex items-center gap-4 pt-2">
                   <div className="flex items-center gap-2">
@@ -378,6 +386,11 @@ export default function MonetizationPage() {
                     <label className="text-sm">Visible in App</label>
                   </div>
                 </div>
+                {(formData.price <= 0 || formData.code?.toLowerCase().startsWith('free')) && (
+                  <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3 text-sm text-emerald-700">
+                    <strong>Free plan:</strong> This plan will auto-activate for users without requiring Stripe payment. Users will get the configured limits immediately upon subscribing.
+                  </div>
+                )}
 
                 {/* Numeric Limits */}
                 <h3 className="font-semibold border-b pb-2 mt-6">Numeric Limits (-1 = unlimited)</h3>
