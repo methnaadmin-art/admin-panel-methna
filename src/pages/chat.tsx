@@ -142,6 +142,8 @@ export default function ChatPage() {
   const [error, setError] = useState('')
   const [page, setPage] = useState(1)
   const [search, setSearch] = useState('')
+  const [filterLocked, setFilterLocked] = useState(false)
+  const [filterFlagged, setFilterFlagged] = useState(false)
   const limit = 20
 
   const [selectedConvo, setSelectedConvo] = useState<ConversationDetail | null>(null)
@@ -163,7 +165,7 @@ export default function ChatPage() {
     setLoading(true)
     setError('')
     try {
-      const { data } = await adminApi.getConversations(page, limit, search || undefined)
+      const { data } = await adminApi.getConversations(page, limit, search.trim() || undefined)
       const normalizedList = extractCollection(data)
         .map((conversation) => normalizeConversation(conversation))
         .filter((conversation): conversation is ConversationDetail => Boolean(conversation))
@@ -191,7 +193,7 @@ export default function ChatPage() {
     } finally {
       setLoading(false)
     }
-  }, [page, search])
+  }, [page, search, filterLocked, filterFlagged])
 
   useEffect(() => { fetchConversations() }, [fetchConversations])
 
@@ -523,15 +525,33 @@ export default function ChatPage() {
         <Badge variant="secondary">{total} conversations</Badge>
       </div>
 
-      {/* Search */}
-      <div className="relative">
-        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-        <Input
-          placeholder="Search by sender or receiver name..."
-          value={search}
-          onChange={(e) => { setSearch(e.target.value); setPage(1) }}
-          className="pl-9"
-        />
+      {/* Search + Filters */}
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="relative flex-1 min-w-[200px]">
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            placeholder="Search by sender or receiver name..."
+            value={search}
+            onChange={(e) => { setSearch(e.target.value); setPage(1) }}
+            className="pl-9"
+          />
+        </div>
+        <Button
+          size="sm"
+          variant={filterLocked ? 'default' : 'outline'}
+          onClick={() => { setFilterLocked(!filterLocked); setPage(1) }}
+          className="gap-1.5"
+        >
+          <Lock className="h-3.5 w-3.5" /> Locked
+        </Button>
+        <Button
+          size="sm"
+          variant={filterFlagged ? 'default' : 'outline'}
+          onClick={() => { setFilterFlagged(!filterFlagged); setPage(1) }}
+          className="gap-1.5"
+        >
+          <Flag className="h-3.5 w-3.5" /> Flagged
+        </Button>
       </div>
 
       <Card>

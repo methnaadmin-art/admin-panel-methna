@@ -12,7 +12,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { Loader2, Bell, Send, Users, User, CheckCircle2, Filter, Eye, MapPin, Calendar, Crown } from 'lucide-react'
+import { Loader2, Bell, Send, Users, User, CheckCircle2, Filter, Eye, MapPin, Calendar, Crown, AlertTriangle } from 'lucide-react'
 
 export default function SendNotificationsPage() {
   const { t } = useTranslation()
@@ -63,10 +63,16 @@ export default function SendNotificationsPage() {
   }
 
   const hasActiveFilters = filters.ageMin || filters.ageMax || filters.gender !== 'all' || filters.premiumOnly || filters.country || filters.city || filters.recentOnly
+  const ageMinNum = filters.ageMin ? Number(filters.ageMin) : NaN
+  const ageMaxNum = filters.ageMax ? Number(filters.ageMax) : NaN
+  const ageRangeInvalid = (filters.ageMin && isNaN(ageMinNum)) || (filters.ageMax && isNaN(ageMaxNum)) || (filters.ageMin && filters.ageMax && ageMinNum > ageMaxNum)
+  const ageMinInvalid = filters.ageMin && (isNaN(ageMinNum) || ageMinNum < 13 || ageMinNum > 120)
+  const ageMaxInvalid = filters.ageMax && (isNaN(ageMaxNum) || ageMaxNum < 13 || ageMaxNum > 120)
 
   const handleSend = async () => {
     if (!title.trim() || !body.trim()) return
     if (mode === 'single' && !userId.trim()) return
+    if (mode === 'broadcast' && ageRangeInvalid) return
 
     setLoading(true)
     setResult(null)
@@ -233,6 +239,15 @@ export default function SendNotificationsPage() {
                 </div>
               </div>
             </div>
+
+            {ageRangeInvalid && (
+              <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+                <AlertTriangle className="mr-2 inline h-4 w-4" />
+                {ageMinInvalid || ageMaxInvalid
+                  ? 'Age must be between 13 and 120.'
+                  : 'Min age must not exceed max age.'}
+              </div>
+            )}
 
             <div className="flex items-center gap-4 border-t pt-4">
               <div className="flex items-center gap-2">

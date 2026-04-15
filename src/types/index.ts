@@ -90,9 +90,20 @@ export interface User {
   isPremium?: boolean
   premiumStartDate?: string
   premiumExpiryDate?: string
+  moderationReasonCode?: string
+  moderationReasonText?: string
+  actionRequired?: string
+  supportMessage?: string
+  moderationExpiresAt?: string
+  internalAdminNote?: string
+  updatedByAdminId?: string
+  isUserVisible?: boolean
+  backgroundCheckStatus?: string
+  backgroundCheckedAt?: string
   verification?: {
-    selfie?: { status: string; url?: string; submittedAt?: string; reviewedAt?: string; rejectionReason?: string }
-    marital_status?: { status: string; url?: string; submittedAt?: string; reviewedAt?: string; rejectionReason?: string }
+    selfie?: { status: string; url?: string; submittedAt?: string; reviewedAt?: string; reviewedBy?: string; rejectionReason?: string }
+    identity?: { status: string; url?: string; submittedAt?: string; reviewedAt?: string; reviewedBy?: string; rejectionReason?: string }
+    marital_status?: { status: string; url?: string; submittedAt?: string; reviewedAt?: string; reviewedBy?: string; rejectionReason?: string }
   }
 }
 

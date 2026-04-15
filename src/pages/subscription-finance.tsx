@@ -96,7 +96,12 @@ export default function SubscriptionFinancePage() {
 
       try {
         const plansResponse = await adminApi.getPlans()
-        const nextPlans = Array.isArray(plansResponse.data) ? plansResponse.data : plansResponse.data?.plans || []
+        const plansPayload: any = plansResponse.data
+        const nextPlans = Array.isArray(plansPayload)
+          ? plansPayload
+          : Array.isArray(plansPayload?.plans)
+            ? plansPayload.plans
+            : []
         setPlans(nextPlans)
 
         const loadedSubscriptions: any[] = []

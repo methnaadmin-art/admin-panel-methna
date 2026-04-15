@@ -47,6 +47,8 @@ export default function SupportPage() {
   const [page, setPage] = useState(1)
   const [limit] = useState(20)
   const [statusFilter, setStatusFilter] = useState('all')
+  const [priorityFilter, setPriorityFilter] = useState('all')
+  const [search, setSearch] = useState('')
   const [loading, setLoading] = useState(true)
 
   const [replyDialog, setReplyDialog] = useState<{ open: boolean; ticket: any }>({ open: false, ticket: null })
@@ -57,8 +59,11 @@ export default function SupportPage() {
   const fetchTickets = async () => {
     setLoading(true)
     try {
-      const status = statusFilter === 'all' ? undefined : statusFilter
-      const { data } = await adminApi.getTickets(page, limit, status)
+      const params: Record<string, any> = { page, limit }
+      if (statusFilter !== 'all') params.status = statusFilter
+      if (priorityFilter !== 'all') params.priority = priorityFilter
+      if (search.trim()) params.search = search.trim()
+      const { data } = await adminApi.getTickets(params)
       setTickets(data.tickets || data || [])
       setTotal(data.total || 0)
     } catch (err) {
@@ -68,7 +73,7 @@ export default function SupportPage() {
     }
   }
 
-  useEffect(() => { fetchTickets() }, [page, statusFilter])
+  useEffect(() => { fetchTickets() }, [page, statusFilter, priorityFilter, search])
 
   const handleReply = async () => {
     if (!replyDialog.ticket || !replyText.trim()) return
@@ -146,19 +151,39 @@ export default function SupportPage() {
         </Card>
       </div>
 
-      {/* Filter */}
-      <Select value={statusFilter} onValueChange={(v) => { setStatusFilter(v); setPage(1) }}>
-        <SelectTrigger className="w-48">
-          <SelectValue placeholder="Filter by status" />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value="all">{t('support.allTickets')}</SelectItem>
-          <SelectItem value="open">{t('support.open')}</SelectItem>
-          <SelectItem value="in_progress">{t('support.inProgress')}</SelectItem>
-          <SelectItem value="resolved">{t('reports.resolved')}</SelectItem>
-          <SelectItem value="closed">{t('support.closed')}</SelectItem>
-        </SelectContent>
-      </Select>
+      {/* Filters */}
+      <div className="flex flex-wrap items-center gap-3">
+        <Input
+          placeholder="Search tickets..."
+          value={search}
+          onChange={(e) => { setSearch(e.target.value); setPage(1) }}
+          className="w-64"
+        />
+        <Select value={statusFilter} onValueChange={(v) => { setStatusFilter(v); setPage(1) }}>
+          <SelectTrigger className="w-44">
+            <SelectValue placeholder="Filter by status" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">{t('support.allTickets')}</SelectItem>
+            <SelectItem value="open">{t('support.open')}</SelectItem>
+            <SelectItem value="in_progress">{t('support.inProgress')}</SelectItem>
+            <SelectItem value="resolved">{t('reports.resolved')}</SelectItem>
+            <SelectItem value="closed">{t('support.closed')}</SelectItem>
+          </SelectContent>
+        </Select>
+        <Select value={priorityFilter} onValueChange={(v) => { setPriorityFilter(v); setPage(1) }}>
+          <SelectTrigger className="w-40">
+            <SelectValue placeholder="Priority" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All priorities</SelectItem>
+            <SelectItem value="urgent">Urgent</SelectItem>
+            <SelectItem value="high">High</SelectItem>
+            <SelectItem value="medium">Medium</SelectItem>
+            <SelectItem value="low">Low</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
 
       {/* Tickets List */}
       <Card>

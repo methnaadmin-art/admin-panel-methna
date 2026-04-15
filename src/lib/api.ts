@@ -139,6 +139,167 @@ const extractCollection = (payload: any): any[] => {
   return []
 }
 
+type SortOrder = 'asc' | 'desc'
+
+export interface AdminUsersQueryParams {
+  page?: number
+  limit?: number
+  status?: string
+  search?: string
+  role?: string
+  plan?: string
+  premiumState?: 'all' | 'premium' | 'not_premium' | 'expired'
+  verificationState?: 'all' | 'pending' | 'approved' | 'rejected'
+  dateFrom?: string
+  dateTo?: string
+  sortBy?: string
+  sortOrder?: SortOrder
+}
+
+export interface AdminVerificationQueryParams {
+  page?: number
+  limit?: number
+  search?: string
+  status?: 'all' | 'pending' | 'approved' | 'rejected'
+  type?: 'all' | 'selfie' | 'identity' | 'marital_status'
+  userStatus?: string
+  dateFrom?: string
+  dateTo?: string
+  sortBy?: string
+  sortOrder?: SortOrder
+}
+
+export interface AdminNotificationsQueryParams {
+  page?: number
+  limit?: number
+  search?: string
+  userId?: string
+  type?: string
+  isRead?: boolean
+  dateFrom?: string
+  dateTo?: string
+  sortBy?: string
+  sortOrder?: SortOrder
+}
+
+export interface AdminTicketsQueryParams {
+  page?: number
+  limit?: number
+  status?: string
+  priority?: string
+  search?: string
+  userId?: string
+  assignedToId?: string
+  dateFrom?: string
+  dateTo?: string
+  sortBy?: string
+  sortOrder?: SortOrder
+}
+
+export interface AdminPlanFeatures {
+  unlimitedLikes?: boolean
+  unlimitedRewinds?: boolean
+  advancedFilters?: boolean
+  seeWhoLikesYou?: boolean
+  whoLikedMe?: boolean
+  readReceipts?: boolean
+  typingIndicators?: boolean
+  invisibleMode?: boolean
+  ghostMode?: boolean
+  passportMode?: boolean
+  boost?: boolean
+  likes?: boolean
+  premiumBadge?: boolean
+  hideAds?: boolean
+  rematch?: boolean
+  videoChat?: boolean
+  superLike?: boolean
+  profileBoostPriority?: boolean
+  priorityMatching?: boolean
+  improvedVisits?: boolean
+}
+
+export interface AdminPlanLimits {
+  dailyLikes?: number
+  dailySuperLikes?: number
+  dailyCompliments?: number
+  monthlyRewinds?: number
+  weeklyBoosts?: number
+  likesLimit?: number
+  boostsLimit?: number
+  complimentsLimit?: number
+}
+
+export interface AdminPlanPayload {
+  code: string
+  name: string
+  description?: string
+  price: number
+  currency?: string
+  billingCycle?: 'monthly' | 'yearly' | 'weekly' | 'one_time'
+  googleProductId?: string
+  googleBasePlanId?: string
+  stripePriceId?: string
+  stripeProductId?: string
+  durationDays?: number
+  isActive?: boolean
+  isVisible?: boolean
+  sortOrder?: number
+  featureFlags?: AdminPlanFeatures
+  limits?: AdminPlanLimits
+}
+
+export interface AdminPlan extends AdminPlanPayload {
+  id: string
+  entitlements?: Record<string, any>
+  features?: string[]
+  createdAt?: string
+  updatedAt?: string
+}
+
+// ── Consumable Products ──────────────────────────────────────
+
+export interface ConsumableProduct {
+  id: string
+  code: string
+  title: string
+  description: string | null
+  type: 'likes_pack' | 'compliments_pack' | 'boosts_pack'
+  quantity: number
+  price: number
+  currency: string
+  isActive: boolean
+  isArchived: boolean
+  platformAvailability: 'all' | 'mobile' | 'web'
+  sortOrder: number
+  googleProductId: string | null
+  stripePriceId: string | null
+  stripeProductId: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export interface ConsumableProductPayload {
+  code: string
+  title: string
+  description?: string
+  type: 'likes_pack' | 'compliments_pack' | 'boosts_pack'
+  quantity: number
+  price: number
+  currency?: string
+  platformAvailability?: 'all' | 'mobile' | 'web'
+  sortOrder?: number
+  googleProductId?: string
+  stripePriceId?: string
+  stripeProductId?: string
+}
+
+export interface UserBalances {
+  likes: number
+  compliments: number
+  boosts: number
+}
+
 export default api
 
 // ── Auth ─────────────────────────────────────────────────────
@@ -158,34 +319,38 @@ export const adminApi = {
   getStats: () => api.get('/admin/stats'),
 
   // Users
-  getUsers: (page = 1, limit = 20, status?: string, search?: string, role?: string, plan?: string) =>
-    tryApiRequests([
-      () => api.get('/admin/users', {
-        params: { page, limit, status, search: search || undefined, role, plan },
-      }),
-      () => api.get('/admin/users', {
-        params: { page, limit, status, q: search || undefined, role, plan },
-      }),
-      () => api.get('/admin/users', {
-        params: { page, limit, status, query: search || undefined, role, plan },
-      }),
-      () => api.get('/admin/users', {
-        params: { page, limit, status, name: search || undefined, role, plan },
-      }),
-      () => api.get('/admin/users', {
-        params: { page, limit, status, email: search || undefined, role, plan },
-      }),
-      () => api.get('/admin/users/search', {
-        params: { page, limit, status, search: search || undefined, role, plan },
-      }),
-      () => api.get('/admin/search/users', {
-        params: { page, limit, status, search: search || undefined, role, plan },
-      }),
-    ]),
+  getUsers: (
+    pageOrQuery: number | AdminUsersQueryParams = 1,
+    limit = 20,
+    status?: string,
+    search?: string,
+    role?: string,
+    plan?: string,
+  ) => {
+    const params: AdminUsersQueryParams =
+      typeof pageOrQuery === 'object'
+        ? {
+            page: pageOrQuery.page ?? 1,
+            limit: pageOrQuery.limit ?? 20,
+            ...pageOrQuery,
+          }
+        : {
+            page: pageOrQuery,
+            limit,
+            status,
+            search: search || undefined,
+            role,
+            plan,
+          }
+
+    return api.get('/admin/users', { params })
+  },
   createUser: (data: { email: string; password: string; firstName: string; lastName: string; role?: string; status?: string }) =>
     api.post('/admin/users', data),
   getUserDetail: (id: string) => api.get(`/admin/users/${id}`),
   getUserActivity: (id: string) => api.get(`/admin/users/${id}/activity`),
+  getUserActions: (id: string, page = 1, limit = 30) =>
+    api.get(`/admin/users/${id}/actions`, { params: { page, limit } }),
   updateUser: (id: string, data: Record<string, any>) =>
     tryApiRequests([
       () => api.patch(`/admin/users/${id}`, data),
@@ -270,13 +435,20 @@ export const adminApi = {
   // Document Verification
   getPendingDocuments: () =>
     tryApiRequests([
+      () => api.get('/admin/verifications', { params: { page: 1, limit: 200, status: 'pending', type: 'marital_status' } }),
       () => api.get('/admin/documents/pending'),
       () => api.get('/admin/verifications/pending'),
       () => api.get('/admin/verification/documents/pending'),
       () => api.get('/admin/users/pending-documents'),
     ]),
+  getVerifications: (params: AdminVerificationQueryParams = {}) =>
+    api.get('/admin/verifications', { params }),
   verifyDocument: (userId: string, approved: boolean, rejectionReason?: string) =>
     tryApiRequests([
+      () => api.patch(`/admin/users/${userId}/verification/marital-status`, {
+        status: approved ? 'approved' : 'rejected',
+        rejectionReason: approved ? undefined : rejectionReason,
+      }),
       () => api.patch(`/admin/documents/${userId}/verify`, { approved, rejectionReason }),
       () => api.patch(`/admin/users/${userId}/document-verification`, { approved, rejectionReason }),
       () => api.patch(`/admin/users/${userId}/verify-document`, { approved, rejectionReason }),
@@ -428,14 +600,40 @@ export const adminApi = {
   },
 
   // Notifications
+  getNotifications: (params: AdminNotificationsQueryParams = {}) =>
+    api.get('/admin/notifications', {
+      params: {
+        page: params.page ?? 1,
+        limit: params.limit ?? 20,
+        ...params,
+      },
+    }),
   sendNotification: (data: { userId?: string; title: string; body: string; type?: string; broadcast?: boolean; filters?: Record<string, any> }) =>
     api.post('/admin/notifications/send', data),
   previewNotificationRecipients: (filters: Record<string, any>) =>
     api.post('/admin/notifications/preview', filters),
 
   // Support Tickets
-  getTickets: (page = 1, limit = 20, status?: string) =>
-    api.get('/admin/tickets', { params: { page, limit, status } }),
+  getTickets: (
+    pageOrQuery: number | AdminTicketsQueryParams = 1,
+    limit = 20,
+    status?: string,
+  ) => {
+    const params: AdminTicketsQueryParams =
+      typeof pageOrQuery === 'object'
+        ? {
+            page: pageOrQuery.page ?? 1,
+            limit: pageOrQuery.limit ?? 20,
+            ...pageOrQuery,
+          }
+        : {
+            page: pageOrQuery,
+            limit,
+            status,
+          }
+
+    return api.get('/admin/tickets', { params })
+  },
   replyToTicket: (id: string, reply: string, status?: string) =>
     api.patch(`/admin/tickets/${id}/reply`, { reply, status }),
 
@@ -500,14 +698,30 @@ export const adminApi = {
   // Plans
   getPlans: () =>
     tryApiRequests([
-      () => api.get('/admin/plans'),
-      () => api.get('/subscriptions/plans'),
+      () => api.get<AdminPlan[]>('/admin/plans'),
+      () => api.get<AdminPlan[]>('/subscriptions/plans'),
     ]),
-  createPlan: (data: Record<string, any>) => api.post('/admin/plans', data),
-  updatePlan: (id: string, data: Record<string, any>) => api.put(`/admin/plans/${id}`, data),
+  createPlan: (data: AdminPlanPayload) => api.post<AdminPlan>('/admin/plans', data),
+  updatePlan: (id: string, data: Partial<AdminPlanPayload>) => api.put<AdminPlan>(`/admin/plans/${id}`, data),
   deletePlan: (id: string) => api.delete(`/admin/plans/${id}`),
   overrideSubscription: (userId: string, data: { planId: string, durationDays: number }) =>
     api.post(`/admin/users/${userId}/subscription/override`, data),
+
+  // Consumable Products
+  getConsumableProducts: (filters?: { type?: string; active?: boolean; archived?: boolean; search?: string }) =>
+    api.get('/consumables/admin/products', { params: filters }),
+  createConsumableProduct: (data: ConsumableProductPayload) =>
+    api.post<ConsumableProduct>('/consumables/admin/products', data),
+  updateConsumableProduct: (id: string, data: Partial<ConsumableProductPayload> & { isActive?: boolean; isArchived?: boolean }) =>
+    api.post<ConsumableProduct>(`/consumables/admin/products/${id}`, data),
+  archiveConsumableProduct: (id: string) =>
+    api.post(`/consumables/admin/products/${id}/archive`),
+  getUserBalances: (userId: string) =>
+    api.get<UserBalances>(`/consumables/admin/users/${userId}/balances`),
+  adjustUserBalance: (userId: string, data: { type: 'likes' | 'compliments' | 'boosts'; delta: number; reason: string }) =>
+    api.post(`/consumables/admin/users/${userId}/balances/adjust`, data),
+  getUserConsumablePurchases: (userId: string, page = 1, limit = 20) =>
+    api.get(`/consumables/admin/users/${userId}/purchases`, { params: { page, limit } }),
 
   // Daily Insights
   getDailyInsights: (page = 1, limit = 20) =>
@@ -624,19 +838,28 @@ export const trustSafetyApi = {
   },
   shadowBan: (userId: string) =>
     tryApiRequests([
+      () => api.patch(`/admin/users/${userId}/status`, {
+        status: 'shadow_suspended',
+        moderationReasonCode: 'POLICY_VIOLATION',
+        actionRequired: 'WAIT_FOR_REVIEW',
+        isUserVisible: true,
+      }),
       () => api.post(`/trust-safety/admin/shadow-ban/${userId}`),
       () => api.post(`/trust-safety/admin/users/${userId}/shadow-ban`),
       () => api.post(`/admin/users/${userId}/shadow-ban`),
-      () => api.patch(`/admin/users/${userId}`, { isShadowBanned: true }),
-      () => api.put(`/admin/users/${userId}`, { isShadowBanned: true }),
+      () => api.patch(`/admin/users/${userId}`, { isShadowBanned: true, status: 'shadow_suspended' }),
+      () => api.put(`/admin/users/${userId}`, { isShadowBanned: true, status: 'shadow_suspended' }),
     ]),
   removeShadowBan: (userId: string) =>
     tryApiRequests([
+      () => api.patch(`/admin/users/${userId}/status`, {
+        status: 'active',
+      }),
       () => api.post(`/trust-safety/admin/remove-shadow-ban/${userId}`),
       () => api.post(`/trust-safety/admin/users/${userId}/remove-shadow-ban`),
       () => api.post(`/admin/users/${userId}/remove-shadow-ban`),
-      () => api.patch(`/admin/users/${userId}`, { isShadowBanned: false }),
-      () => api.put(`/admin/users/${userId}`, { isShadowBanned: false }),
+      () => api.patch(`/admin/users/${userId}`, { isShadowBanned: false, status: 'active' }),
+      () => api.put(`/admin/users/${userId}`, { isShadowBanned: false, status: 'active' }),
     ]),
   detectSuspicious: (userId: string) =>
     tryApiRequests([

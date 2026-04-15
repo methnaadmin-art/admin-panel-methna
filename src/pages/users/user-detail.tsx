@@ -382,6 +382,13 @@ export default function UserDetailPage() {
 
   const confirmStatusChange = async () => {
     if (!id || !modDialog.status) return
+
+    // Require internalAdminNote when setting a non-active status
+    if (modDialog.status !== 'active' && !modForm.internalAdminNote.trim()) {
+      toast({ title: 'Note Required', description: 'An internal admin note is required when changing a user\'s status. Other admins need to understand why this action was taken.', variant: 'error' })
+      return
+    }
+
     setModLoading(true)
     try {
       await adminApi.updateUserStatus(id, modDialog.status, {
@@ -392,12 +399,13 @@ export default function UserDetailPage() {
         supportMessage: modForm.supportMessage || undefined,
         isUserVisible: modForm.isUserVisible,
         expiresAt: modForm.expiresAt || undefined,
-        internalAdminNote: modForm.internalAdminNote || undefined,
+        internalAdminNote: modForm.internalAdminNote.trim() || undefined,
       } as any)
       await reload()
       toast({ title: 'Status Updated', description: `User status changed to ${modDialog.status}`, variant: 'success' })
-    } catch (err) {
-      toast({ title: 'Error', description: 'Failed to update status', variant: 'error' })
+    } catch (err: any) {
+      const msg = err?.response?.data?.message || 'Failed to update status'
+      toast({ title: 'Error', description: msg, variant: 'error' })
     } finally {
       setModLoading(false)
       setModDialog({ open: false, status: '' })
@@ -843,6 +851,61 @@ export default function UserDetailPage() {
                   )}
                 </CardContent>
               </Card>
+
+              {/* Moderation Info */}
+              {(user.moderationReasonCode || user.actionRequired || user.supportMessage || user.internalAdminNote) && (
+                <Card className="border-amber-200 bg-amber-50/50">
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-base flex items-center gap-2">
+                      <AlertTriangle className="h-4 w-4 text-amber-500" /> Moderation Info
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-2 text-sm">
+                    {user.moderationReasonCode && (
+                      <div className="flex items-start gap-2">
+                        <span className="text-xs text-muted-foreground uppercase tracking-wide min-w-[100px]">Reason Code</span>
+                        <Badge variant="warning" className="text-[10px]">{String(user.moderationReasonCode).replace(/_/g, ' ')}</Badge>
+                      </div>
+                    )}
+                    {user.moderationReasonText && (
+                      <div className="flex items-start gap-2">
+                        <span className="text-xs text-muted-foreground uppercase tracking-wide min-w-[100px]">Reason Text</span>
+                        <span className="text-sm">{user.moderationReasonText}</span>
+                      </div>
+                    )}
+                    {user.actionRequired && (
+                      <div className="flex items-start gap-2">
+                        <span className="text-xs text-muted-foreground uppercase tracking-wide min-w-[100px]">Action Required</span>
+                        <Badge variant="outline" className="text-[10px]">{String(user.actionRequired).replace(/_/g, ' ')}</Badge>
+                      </div>
+                    )}
+                    {user.supportMessage && (
+                      <div className="flex items-start gap-2">
+                        <span className="text-xs text-muted-foreground uppercase tracking-wide min-w-[100px]">User Message</span>
+                        <span className="text-sm text-foreground">{user.supportMessage}</span>
+                      </div>
+                    )}
+                    {user.moderationExpiresAt && (
+                      <div className="flex items-start gap-2">
+                        <span className="text-xs text-muted-foreground uppercase tracking-wide min-w-[100px]">Expires At</span>
+                        <span className="text-sm">{formatDateTime(user.moderationExpiresAt)}</span>
+                      </div>
+                    )}
+                    {user.internalAdminNote && (
+                      <div className="mt-2 rounded border border-amber-200 bg-white p-2">
+                        <span className="text-[10px] text-muted-foreground uppercase tracking-wide">Internal Admin Note</span>
+                        <p className="text-sm mt-1 text-foreground">{user.internalAdminNote}</p>
+                      </div>
+                    )}
+                    {user.updatedByAdminId && (
+                      <div className="flex items-start gap-2 mt-1">
+                        <span className="text-xs text-muted-foreground uppercase tracking-wide min-w-[100px]">Changed By</span>
+                        <code className="text-[10px] bg-muted px-1.5 py-0.5 rounded">{user.updatedByAdminId}</code>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              )}
             </div>
           </div>
         </TabsContent>
@@ -1224,13 +1287,12 @@ export default function UserDetailPage() {
                     <Badge variant="warning" className="gap-1"><Clock className="h-3 w-3" /> Pending</Badge>
                   )}
                 </div>
-
                 {/* Selfie Verification */}
                 {(() => {
-                  const selfieStatus = (user as any).verification?.selfie?.status || (user.selfieVerified ? 'approved' : 'not_submitted')
-                  const selfieUrl = (user as any).verification?.selfie?.url || user.selfieUrl
-                  const selfieRejection = (user as any).verification?.selfie?.rejectionReason
-                  const selfieReviewedAt = (user as any).verification?.selfie?.reviewedAt
+                  const selfieStatus = user.verification?.selfie?.status || (user.selfieVerified ? 'approved' : 'not_submitted')
+                  const selfieUrl = user.verification?.selfie?.url || user.selfieUrl
+                  const selfieRejection = user.verification?.selfie?.rejectionReason
+                  const selfieReviewedAt = user.verification?.selfie?.reviewedAt
                   return (
                     <>
                       <div className="flex items-center justify-between">
@@ -1301,10 +1363,10 @@ export default function UserDetailPage() {
 
                 {/* Marital Status Verification */}
                 {(() => {
-                  const maritalStatus = (user as any).verification?.marital_status?.status || (user.documentVerified ? 'approved' : user.documentUrl ? 'pending' : 'not_submitted')
-                  const maritalUrl = (user as any).verification?.marital_status?.url || user.documentUrl
-                  const maritalRejection = (user as any).verification?.marital_status?.rejectionReason || user.documentRejectionReason
-                  const maritalReviewedAt = (user as any).verification?.marital_status?.reviewedAt || user.documentVerifiedAt
+                  const maritalStatus = user.verification?.marital_status?.status || (user.documentVerified ? 'approved' : user.documentUrl ? 'pending' : 'not_submitted')
+                  const maritalUrl = user.verification?.marital_status?.url || user.documentUrl
+                  const maritalRejection = user.verification?.marital_status?.rejectionReason || user.documentRejectionReason
+                  const maritalReviewedAt = user.verification?.marital_status?.reviewedAt || user.documentVerifiedAt
                   return (
                     <>
                       <div className="flex items-center justify-between border-t pt-3">
@@ -1404,6 +1466,53 @@ export default function UserDetailPage() {
                 </div>
               </CardContent>
             </Card>
+
+            {/* Moderation Info Card */}
+            {(user.moderationReasonCode || user.actionRequired || user.supportMessage || user.moderationExpiresAt || user.internalAdminNote) && (
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base">Moderation Details</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-2">
+                  {user.moderationReasonCode && (
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-muted-foreground">Reason code</span>
+                      <Badge variant="outline">{user.moderationReasonCode}</Badge>
+                    </div>
+                  )}
+                  {user.moderationReasonText && (
+                    <div className="text-sm">
+                      <span className="text-muted-foreground">Reason: </span>
+                      <span>{user.moderationReasonText}</span>
+                    </div>
+                  )}
+                  {user.actionRequired && (
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-muted-foreground">Action required</span>
+                      <Badge variant="secondary">{user.actionRequired.replace(/_/g, ' ')}</Badge>
+                    </div>
+                  )}
+                  {user.supportMessage && (
+                    <div className="text-sm">
+                      <span className="text-muted-foreground">Support message: </span>
+                      <span>{user.supportMessage}</span>
+                    </div>
+                  )}
+                  {user.moderationExpiresAt && (
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-muted-foreground">Expires at</span>
+                      <span className="font-medium">{new Date(user.moderationExpiresAt).toLocaleString()}</span>
+                    </div>
+                  )}
+                  {user.internalAdminNote && (
+                    <div className="text-sm border-t pt-2">
+                      <span className="text-muted-foreground">Internal note: </span>
+                      <span className="text-amber-700">{user.internalAdminNote}</span>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            )}
           </div>
         </TabsContent>
       </Tabs>
@@ -1471,7 +1580,7 @@ export default function UserDetailPage() {
           <DialogHeader>
             <DialogTitle>Set Status: {modDialog.status.replace(/_/g, ' ')}</DialogTitle>
             <DialogDescription>
-              Configure the moderation action. Fields marked with * are recommended.
+              Configure the moderation action. An internal admin note is <strong>required</strong> so other admins understand why this action was taken.
             </DialogDescription>
           </DialogHeader>
 
@@ -1570,20 +1679,23 @@ export default function UserDetailPage() {
 
             {/* Internal Admin Note */}
             <div>
-              <label className="text-xs font-medium">Internal Admin Note (never shown to user)</label>
+              <label className="text-xs font-medium">
+                Internal Admin Note <span className="text-red-500">*</span>
+                <span className="text-muted-foreground font-normal ml-1">(never shown to user — required for non-active statuses)</span>
+              </label>
               <Textarea
                 value={modForm.internalAdminNote}
                 onChange={(e) => setModForm({ ...modForm, internalAdminNote: e.target.value })}
-                placeholder="Context, ticket #, who requested this..."
+                placeholder="Why are you taking this action? Context, ticket #, who requested this..."
                 className="mt-1"
-                rows={2}
+                rows={3}
               />
             </div>
           </div>
 
           <DialogFooter>
             <Button variant="outline" onClick={() => { setModDialog({ open: false, status: '' }); setModForm({ reason: '', moderationReasonCode: '', moderationReasonText: '', actionRequired: '', supportMessage: '', isUserVisible: true, expiresAt: '', internalAdminNote: '' }) }}>{t('common.cancel')}</Button>
-            <Button onClick={confirmStatusChange} disabled={modLoading}>
+            <Button onClick={confirmStatusChange} disabled={modLoading || (modDialog.status !== 'active' && !modForm.internalAdminNote.trim())}>
               {modLoading ? <Loader2 className="h-4 w-4 animate-spin me-1" /> : null}
               Confirm
             </Button>

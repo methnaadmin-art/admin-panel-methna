@@ -54,14 +54,18 @@ type UserRecord = Record<string, any>
 type VerificationStatus = 'pending' | 'approved' | 'rejected'
 type PremiumFilter = 'all' | 'premium' | 'not_premium' | 'expired'
 type VerificationFilter = 'all' | VerificationStatus
-type UserStatus = 'active' | 'pending_verification' | 'rejected' | 'banned' | 'suspended'
+type UserStatus = 'active' | 'pending_verification' | 'rejected' | 'banned' | 'suspended' | 'limited' | 'shadow_suspended' | 'deactivated' | 'closed'
 
 const USER_STATUS_OPTIONS: Array<{ value: UserStatus; label: string; actionLabel: string }> = [
   { value: 'active', label: 'Active', actionLabel: 'Activate' },
   { value: 'pending_verification', label: 'Pending Verification', actionLabel: 'Mark Pending' },
+  { value: 'limited', label: 'Limited', actionLabel: 'Limit' },
+  { value: 'suspended', label: 'Suspended', actionLabel: 'Suspend' },
+  { value: 'shadow_suspended', label: 'Shadow Suspended', actionLabel: 'Shadow Suspend' },
   { value: 'rejected', label: 'Rejected', actionLabel: 'Reject' },
   { value: 'banned', label: 'Banned', actionLabel: 'Ban' },
-  { value: 'suspended', label: 'Suspended', actionLabel: 'Suspend' },
+  { value: 'deactivated', label: 'Deactivated', actionLabel: 'Deactivate' },
+  { value: 'closed', label: 'Closed', actionLabel: 'Close' },
 ]
 
 const DAY_IN_MS = 24 * 60 * 60 * 1000
@@ -140,9 +144,13 @@ const normalizeUserStatus = (value: unknown): UserStatus | '' => {
 
   if (normalized === 'active') return 'active'
   if (normalized === 'pending_verification' || normalized === 'pending') return 'pending_verification'
+  if (normalized === 'limited') return 'limited'
+  if (normalized === 'suspended') return 'suspended'
+  if (normalized === 'shadow_suspended' || normalized === 'shadow_suspension') return 'shadow_suspended'
   if (normalized === 'rejected' || normalized === 'declined' || normalized === 'denied') return 'rejected'
   if (normalized === 'banned') return 'banned'
-  if (normalized === 'suspended') return 'suspended'
+  if (normalized === 'deactivated') return 'deactivated'
+  if (normalized === 'closed') return 'closed'
 
   return ''
 }
@@ -155,12 +163,20 @@ const getStatusMeta = (status: unknown) => {
       return { label: 'Active', variant: 'success' as const }
     case 'pending_verification':
       return { label: 'Pending Verification', variant: 'warning' as const }
+    case 'limited':
+      return { label: 'Limited', variant: 'warning' as const }
+    case 'suspended':
+      return { label: 'Suspended', variant: 'warning' as const }
+    case 'shadow_suspended':
+      return { label: 'Shadow Suspended', variant: 'secondary' as const }
     case 'rejected':
       return { label: 'Rejected', variant: 'destructive' as const }
     case 'banned':
       return { label: 'Banned', variant: 'destructive' as const }
-    case 'suspended':
-      return { label: 'Suspended', variant: 'warning' as const }
+    case 'deactivated':
+      return { label: 'Deactivated', variant: 'secondary' as const }
+    case 'closed':
+      return { label: 'Closed', variant: 'secondary' as const }
     default:
       return { label: typeof status === 'string' && status.trim() ? status : 'Unknown', variant: 'secondary' as const }
   }
@@ -514,6 +530,19 @@ export default function UsersPage() {
     status: 'active',
   })
   const [createLoading, setCreateLoading] = useState(false)
+  const [createErrors, setCreateErrors] = useState<Record<string, string>>({})
+
+  const validateCreateForm = () => {
+    const errors: Record<string, string> = {}
+    if (!createForm.email.trim()) errors.email = 'Email is required'
+    else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(createForm.email.trim())) errors.email = 'Invalid email format'
+    if (!createForm.password) errors.password = 'Password is required'
+    else if (createForm.password.length < 6) errors.password = 'Password must be at least 6 characters'
+    if (!createForm.firstName.trim()) errors.firstName = 'First name is required'
+    if (!createForm.lastName.trim()) errors.lastName = 'Last name is required'
+    setCreateErrors(errors)
+    return Object.keys(errors).length === 0
+  }
 
   const [statusDialog, setStatusDialog] = useState<{ open: boolean; user: UserRecord | null; newStatus: string }>({
     open: false,
@@ -702,6 +731,7 @@ export default function UsersPage() {
   }
 
   const handleCreateUser = async () => {
+    if (!validateCreateForm()) return
     setCreateLoading(true)
     try {
       await adminApi.createUser(createForm)
@@ -715,6 +745,7 @@ export default function UsersPage() {
         role: 'user',
         status: 'active',
       })
+      setCreateErrors({})
       toast({ title: 'User created', variant: 'success' })
       await fetchUsers({ silent: true })
     } catch (error: any) {
@@ -1323,21 +1354,25 @@ export default function UsersPage() {
           <div className="space-y-3">
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="text-xs font-medium">First Name</label>
+                <label className="text-xs font-medium">First Name <span className="text-red-500">*</span></label>
                 <Input value={createForm.firstName} onChange={(event) => setCreateForm({ ...createForm, firstName: event.target.value })} />
+                {createErrors.firstName && <p className="text-[11px] text-red-500 mt-1">{createErrors.firstName}</p>}
               </div>
               <div>
-                <label className="text-xs font-medium">Last Name</label>
+                <label className="text-xs font-medium">Last Name <span className="text-red-500">*</span></label>
                 <Input value={createForm.lastName} onChange={(event) => setCreateForm({ ...createForm, lastName: event.target.value })} />
+                {createErrors.lastName && <p className="text-[11px] text-red-500 mt-1">{createErrors.lastName}</p>}
               </div>
             </div>
             <div>
-              <label className="text-xs font-medium">{t('users.email')}</label>
+              <label className="text-xs font-medium">{t('users.email')} <span className="text-red-500">*</span></label>
               <Input type="email" value={createForm.email} onChange={(event) => setCreateForm({ ...createForm, email: event.target.value })} />
+              {createErrors.email && <p className="text-[11px] text-red-500 mt-1">{createErrors.email}</p>}
             </div>
             <div>
-              <label className="text-xs font-medium">{t('login.password')}</label>
-              <Input type="password" value={createForm.password} onChange={(event) => setCreateForm({ ...createForm, password: event.target.value })} />
+              <label className="text-xs font-medium">{t('login.password')} <span className="text-red-500">*</span></label>
+              <Input type="password" value={createForm.password} onChange={(event) => setCreateForm({ ...createForm, password: event.target.value })} placeholder="Min 6 characters" />
+              {createErrors.password && <p className="text-[11px] text-red-500 mt-1">{createErrors.password}</p>}
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>

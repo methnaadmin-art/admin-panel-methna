@@ -29,6 +29,7 @@ import {
   Headphones,
   Megaphone,
   Crown,
+  Settings2,
   Send,
   FileCheck,
   FileText,
@@ -36,6 +37,7 @@ import {
   BookOpen,
   Sparkles,
   Rocket,
+  ShoppingCart,
   type LucideIcon,
 } from 'lucide-react'
 import { useState, useEffect } from 'react'
@@ -105,6 +107,8 @@ const navSections: NavSection[] = [
     items: [
       { to: '/subscriptions', labelKey: 'nav.subscriptions', icon: Crown },
       { to: '/subscriptions/finance', labelKey: 'Subscription Finance', icon: CreditCard },
+      { to: '/plans', labelKey: 'Plans', icon: Settings2 },
+      { to: '/consumables', labelKey: 'Consumables', icon: ShoppingCart },
       { to: '/monetization', labelKey: 'nav.monetization', icon: CreditCard },
       { to: '/ads', labelKey: 'nav.adCampaigns', icon: Megaphone },
     ],

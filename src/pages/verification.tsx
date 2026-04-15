@@ -56,7 +56,6 @@ interface PendingDocUser {
 type ApiRecord = Record<string, any>
 type UserStatus = 'active' | 'pending_verification' | 'rejected' | 'banned' | 'suspended'
 
-const USER_POOL_PAGES = 5
 const REFRESH_INTERVAL_MS = 15000
 
 const isRecord = (value: unknown): value is ApiRecord =>
@@ -378,28 +377,13 @@ const normalizePendingDocUser = (record: ApiRecord): PendingDocUser | null => {
   }
 }
 
-const loadUserPool = async () => {
-  const settledResponses = await Promise.allSettled(
-    Array.from({ length: USER_POOL_PAGES }, (_, index) => adminApi.getUsers(index + 1, 100))
-  )
-
-  return uniqueById(
-    settledResponses.flatMap((result) => {
-      if (result.status !== 'fulfilled') {
-        return []
-      }
-
-      return extractItems(result.value.data).filter((item) => typeof item.id === 'string' && item.id.length > 0)
-    })
-  )
-}
-
 export default function VerificationPage() {
   const { t } = useTranslation()
   const navigate = useNavigate()
   const { toast } = useToast()
 
   const [tab, setTab] = useState('selfie')
+  const [statusFilter, setStatusFilter] = useState<'pending' | 'approved' | 'rejected'>('pending')
   const [selfieUsers, setSelfieUsers] = useState<PendingVerificationUser[]>([])
   const [maritalUsers, setMaritalUsers] = useState<PendingDocUser[]>([])
   const [selfieLoading, setSelfieLoading] = useState(true)
@@ -415,23 +399,22 @@ export default function VerificationPage() {
     }
 
     try {
-      const [userPool, pendingDocumentsResult] = await Promise.all([
-        loadUserPool(),
-        adminApi.getPendingDocuments().catch(() => null),
+      const [selfieQueueResult, maritalQueueResult] = await Promise.all([
+        adminApi.getVerifications({ page: 1, limit: 250, status: statusFilter, type: 'selfie' }),
+        adminApi.getVerifications({ page: 1, limit: 250, status: statusFilter, type: 'marital_status' }),
       ])
 
+      const selfieQueueRecords = extractItems(selfieQueueResult.data)
+      const maritalQueueRecords = extractItems(maritalQueueResult.data)
+
       const nextSelfieUsers = uniqueById(
-        userPool
+        selfieQueueRecords
           .map(normalizePendingSelfieUser)
           .filter((user): user is PendingVerificationUser => Boolean(user))
       )
 
-      const pendingDocumentRecords = pendingDocumentsResult
-        ? extractItems(pendingDocumentsResult.data)
-        : []
-
       const nextMaritalUsers = uniqueById(
-        [...pendingDocumentRecords, ...userPool]
+        maritalQueueRecords
           .map(normalizePendingDocUser)
           .filter((user): user is PendingDocUser => Boolean(user))
       )
@@ -462,7 +445,7 @@ export default function VerificationPage() {
     }, REFRESH_INTERVAL_MS)
 
     return () => window.clearInterval(refreshId)
-  }, [])
+  }, [statusFilter])
 
   const applySelfieDecision = (userId: string, approved: boolean) => {
     setSelfieUsers((currentUsers) =>
@@ -577,6 +560,15 @@ export default function VerificationPage() {
         </div>
 
         <div className="flex items-center gap-2">
+          <select
+            className="rounded-md border px-3 py-1.5 text-sm"
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value as 'pending' | 'approved' | 'rejected')}
+          >
+            <option value="pending">Pending</option>
+            <option value="approved">Approved</option>
+            <option value="rejected">Rejected</option>
+          </select>
           <Badge variant="secondary">
             {lastSyncedAt ? `Last synced ${new Date(lastSyncedAt).toLocaleTimeString()}` : 'Syncing...'}
           </Badge>

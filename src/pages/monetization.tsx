@@ -372,7 +372,7 @@ export default function MonetizationPage() {
                   </div>
                   <div>
                     <label className="text-sm font-medium">Google Play Product ID (optional)</label>
-                    <Input value={formData.googleProductId || ''} onChange={e => setFormData({...formData, googleProductId: e.target.value || null})} placeholder="com.methna.app.premium_monthly" />
+                    <Input value={formData.googleProductId || ''} onChange={e => setFormData({...formData, googleProductId: e.target.value || null})} placeholder="com.methnapp.app.premium_monthly" />
                     <p className="text-xs text-muted-foreground mt-1">The in-app product ID from Google Play Console. Must match the subscription product ID exactly.</p>
                   </div>
                 </div>

@@ -110,10 +110,16 @@ export default function SubscriptionsPage() {
       </div>
 
       <div className="flex justify-end">
-        <Button variant="outline" className="gap-2" onClick={() => navigate('/subscriptions/finance')}>
-          <Crown className="h-4 w-4" />
-          Open Finance Screen
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="outline" className="gap-2" onClick={() => navigate('/plans')}>
+            <Edit2 className="h-4 w-4" />
+            Manage Plans
+          </Button>
+          <Button variant="outline" className="gap-2" onClick={() => navigate('/subscriptions/finance')}>
+            <Crown className="h-4 w-4" />
+            Open Finance Screen
+          </Button>
+        </div>
       </div>
 
       {/* Plan Breakdown */}

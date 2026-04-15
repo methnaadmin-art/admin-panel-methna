@@ -20,16 +20,20 @@ import { Loader2, Search, Eye, MapPin, ChevronLeft, ChevronRight } from 'lucide-
 type SearchResultUser = Record<string, any>
 type VerificationFilter = 'all' | 'pending' | 'approved' | 'rejected'
 type PremiumFilter = 'all' | 'premium' | 'not_premium' | 'expired'
-type UserStatus = 'active' | 'pending_verification' | 'rejected' | 'banned' | 'suspended'
+type UserStatus = 'active' | 'pending_verification' | 'rejected' | 'banned' | 'suspended' | 'limited' | 'shadow_suspended' | 'deactivated' | 'closed'
 
 const SEARCH_PAGE_SIZE = 20
 
 const USER_STATUS_OPTIONS: Array<{ value: UserStatus; label: string }> = [
   { value: 'active', label: 'Active' },
   { value: 'pending_verification', label: 'Pending Verification' },
+  { value: 'limited', label: 'Limited' },
+  { value: 'suspended', label: 'Suspended' },
+  { value: 'shadow_suspended', label: 'Shadow Suspended' },
   { value: 'rejected', label: 'Rejected' },
   { value: 'banned', label: 'Banned' },
-  { value: 'suspended', label: 'Suspended' },
+  { value: 'deactivated', label: 'Deactivated' },
+  { value: 'closed', label: 'Closed' },
 ]
 
 const isRecord = (value: unknown): value is SearchResultUser =>

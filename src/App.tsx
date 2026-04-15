@@ -25,6 +25,7 @@ const SupportPage = lazy(() => import('@/pages/support'))
 const AdsPage = lazy(() => import('@/pages/ads'))
 const SubscriptionsPage = lazy(() => import('@/pages/subscriptions'))
 const SubscriptionFinancePage = lazy(() => import('@/pages/subscription-finance'))
+const PlansPage = lazy(() => import('@/pages/plans'))
 const SendNotificationsPage = lazy(() => import('@/pages/send-notifications'))
 const VerificationPage = lazy(() => import('@/pages/verification'))
 const AuditLogsPage = lazy(() => import('@/pages/audit-logs'))
@@ -32,6 +33,7 @@ const GuidePage = lazy(() => import('@/pages/guide'))
 const CategoriesPage = lazy(() => import('@/pages/categories'))
 const DailyInsightsPage = lazy(() => import('@/pages/daily-insights'))
 const ContentManagementPage = lazy(() => import('@/pages/content'))
+const ConsumablesPage = lazy(() => import('@/pages/consumables'))
 
 function RouteFallback() {
   return (
@@ -67,6 +69,7 @@ export default function App() {
                   <Route path="/ads" element={<AdsPage />} />
                   <Route path="/subscriptions" element={<SubscriptionsPage />} />
                   <Route path="/subscriptions/finance" element={<SubscriptionFinancePage />} />
+                  <Route path="/plans" element={<PlansPage />} />
                   <Route path="/send-notifications" element={<SendNotificationsPage />} />
                   <Route path="/analytics" element={<AnalyticsPage />} />
                   <Route path="/trust-safety" element={<TrustSafetyPage />} />
@@ -76,6 +79,7 @@ export default function App() {
                   <Route path="/daily-insights" element={<DailyInsightsPage />} />
                   <Route path="/guide" element={<GuidePage />} />
                   <Route path="/content" element={<ContentManagementPage />} />
+                  <Route path="/consumables" element={<ConsumablesPage />} />
                 </Route>
               </Routes>
             </Suspense>
