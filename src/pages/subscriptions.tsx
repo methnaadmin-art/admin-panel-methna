@@ -26,7 +26,10 @@ import {
   ChevronRight,
   Eye,
   Rocket,
-  Edit2
+  Edit2,
+  Search,
+  ArrowUpDown,
+  FilterX,
 } from 'lucide-react'
 
 export default function SubscriptionsPage() {
@@ -38,6 +41,10 @@ export default function SubscriptionsPage() {
   const [page, setPage] = useState(1)
   const [limit] = useState(20)
   const [planFilter, setPlanFilter] = useState('all')
+  const [statusFilter, setStatusFilter] = useState('all')
+  const [searchQuery, setSearchQuery] = useState('')
+  const [sortBy, setSortBy] = useState('createdAt')
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc')
   const [loading, setLoading] = useState(true)
 
   const [boosts, setBoosts] = useState<any[]>([])
@@ -57,8 +64,15 @@ export default function SubscriptionsPage() {
   const fetchSubscriptions = async () => {
     setLoading(true)
     try {
-      const plan = planFilter === 'all' ? undefined : planFilter
-      const { data } = await adminApi.getSubscriptions(page, limit, plan)
+      const { data } = await adminApi.getSubscriptions({
+        page,
+        limit,
+        plan: planFilter === 'all' ? undefined : planFilter,
+        status: statusFilter === 'all' ? undefined : statusFilter,
+        search: searchQuery.trim() || undefined,
+        sortBy,
+        sortOrder,
+      })
       setSubscriptions(data.subscriptions || data || [])
       setTotal(data.total || 0)
       if (data.counts) setCounts(data.counts)
@@ -81,12 +95,24 @@ export default function SubscriptionsPage() {
     }
   }
 
-  useEffect(() => { fetchSubscriptions() }, [page, planFilter])
+  useEffect(() => { fetchSubscriptions() }, [page, planFilter, statusFilter, searchQuery, sortBy, sortOrder])
+
+  const resetFilters = () => {
+    setPlanFilter('all')
+    setStatusFilter('all')
+    setSearchQuery('')
+    setSortBy('createdAt')
+    setSortOrder('desc')
+    setPage(1)
+  }
 
   const totalPages = Math.ceil(total / limit)
 
+  const resolvePlanCode = (subscription: any) =>
+    String(subscription.planEntity?.code || subscription.plan || 'free').toLowerCase()
+
   const planBadge = (plan: string) => {
-    switch (plan) {
+    switch (plan.toLowerCase()) {
       case 'gold': return <Badge className="bg-amber-500 text-white">Gold</Badge>
       case 'premium': return <Badge className="bg-purple-500 text-white">Premium</Badge>
       default: return <Badge variant="secondary">Free</Badge>
@@ -215,9 +241,19 @@ export default function SubscriptionsPage() {
       )}
 
       {/* Filter */}
-      <div className="flex items-center gap-3">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
+        <div className="relative lg:col-span-2">
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            className="pl-9"
+            placeholder="Search by user name, email, subscription ID..."
+            value={searchQuery}
+            onChange={(e) => { setSearchQuery(e.target.value); setPage(1) }}
+          />
+        </div>
+
         <Select value={planFilter} onValueChange={(v) => { setPlanFilter(v); setPage(1) }}>
-          <SelectTrigger className="w-44">
+          <SelectTrigger>
             <SelectValue placeholder="Filter by plan" />
           </SelectTrigger>
           <SelectContent>
@@ -227,7 +263,52 @@ export default function SubscriptionsPage() {
             <SelectItem value="gold">{t('users.gold')}</SelectItem>
           </SelectContent>
         </Select>
-        <span className="text-sm text-muted-foreground">{total} {t('nav.subscriptions')}</span>
+
+        <Select value={statusFilter} onValueChange={(v) => { setStatusFilter(v); setPage(1) }}>
+          <SelectTrigger>
+            <SelectValue placeholder="Filter by status" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Statuses</SelectItem>
+            <SelectItem value="active">Active</SelectItem>
+            <SelectItem value="trial">Trial</SelectItem>
+            <SelectItem value="past_due">Past Due</SelectItem>
+            <SelectItem value="cancelled">Cancelled</SelectItem>
+            <SelectItem value="expired">Expired</SelectItem>
+          </SelectContent>
+        </Select>
+
+        <Select value={sortBy} onValueChange={(v) => { setSortBy(v); setPage(1) }}>
+          <SelectTrigger>
+            <ArrowUpDown className="mr-2 h-4 w-4" />
+            <SelectValue placeholder="Sort by" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="createdAt">Created</SelectItem>
+            <SelectItem value="startDate">Start Date</SelectItem>
+            <SelectItem value="endDate">End Date</SelectItem>
+            <SelectItem value="status">Status</SelectItem>
+            <SelectItem value="plan">Plan</SelectItem>
+            <SelectItem value="email">User Email</SelectItem>
+          </SelectContent>
+        </Select>
+
+        <Select value={sortOrder} onValueChange={(v) => { setSortOrder(v as 'asc' | 'desc'); setPage(1) }}>
+          <SelectTrigger>
+            <SelectValue placeholder="Order" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="desc">Descending</SelectItem>
+            <SelectItem value="asc">Ascending</SelectItem>
+          </SelectContent>
+        </Select>
+
+        <div className="sm:col-span-2 lg:col-span-6 flex items-center justify-between">
+          <span className="text-sm text-muted-foreground">{total} {t('nav.subscriptions')}</span>
+          <Button variant="outline" size="sm" className="gap-2" onClick={resetFilters}>
+            <FilterX className="h-4 w-4" /> Reset Filters
+          </Button>
+        </div>
       </div>
 
       {/* Subscriptions Table */}
@@ -272,7 +353,7 @@ export default function SubscriptionsPage() {
                             </div>
                           </div>
                         </td>
-                        <td className="py-3 pr-4">{planBadge(sub.plan)}</td>
+                        <td className="py-3 pr-4">{planBadge(resolvePlanCode(sub))}</td>
                         <td className="py-3 pr-4">{statusBadge(sub.status)}</td>
                         <td className="py-3 pr-4 text-muted-foreground text-xs">{sub.startDate ? formatDateTime(sub.startDate) : '-'}</td>
                         <td className="py-3 pr-4 text-muted-foreground text-xs">{sub.endDate ? formatDateTime(sub.endDate) : '-'}</td>

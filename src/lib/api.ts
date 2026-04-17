@@ -196,6 +196,19 @@ export interface AdminTicketsQueryParams {
   sortOrder?: SortOrder
 }
 
+export interface AdminSubscriptionsQueryParams {
+  page?: number
+  limit?: number
+  plan?: string
+  userId?: string
+  status?: string
+  search?: string
+  dateFrom?: string
+  dateTo?: string
+  sortBy?: string
+  sortOrder?: SortOrder
+}
+
 export interface AdminPlanFeatures {
   unlimitedLikes?: boolean
   unlimitedRewinds?: boolean
@@ -523,17 +536,30 @@ export const adminApi = {
     api.get('/admin/matches', { params: { page, limit } }),
 
   // Conversations
-  getConversations: (page = 1, limit = 20, search?: string) => {
+  getConversations: (
+    page = 1,
+    limit = 20,
+    search?: string,
+    options?: { locked?: boolean; flagged?: boolean }
+  ) => {
     const trimmedSearch = typeof search === 'string' ? search.trim() : ''
+    const baseParams: Record<string, any> = { page, limit }
+    if (typeof options?.locked === 'boolean') {
+      baseParams.locked = options.locked
+    }
+    if (typeof options?.flagged === 'boolean') {
+      baseParams.flagged = options.flagged
+    }
+
     const requests = trimmedSearch
       ? [
-          () => api.get('/admin/conversations', { params: { page, limit, search: trimmedSearch } }),
-          () => api.get('/admin/conversations', { params: { page, limit, q: trimmedSearch } }),
-          () => api.get('/admin/conversations', { params: { page, limit, query: trimmedSearch } }),
-          () => api.get('/admin/conversations', { params: { page, limit } }),
+          () => api.get('/admin/conversations', { params: { ...baseParams, search: trimmedSearch } }),
+          () => api.get('/admin/conversations', { params: { ...baseParams, q: trimmedSearch } }),
+          () => api.get('/admin/conversations', { params: { ...baseParams, query: trimmedSearch } }),
+          () => api.get('/admin/conversations', { params: baseParams }),
         ]
       : [
-          () => api.get('/admin/conversations', { params: { page, limit } }),
+          () => api.get('/admin/conversations', { params: baseParams }),
         ]
 
     return tryApiRequests(requests)
@@ -648,12 +674,38 @@ export const adminApi = {
     api.get('/admin/boosts', { params: { page, limit } }),
 
   // Subscriptions
-  getSubscriptions: (page = 1, limit = 20, plan?: string, userId?: string) =>
-    tryApiRequests([
-      () => api.get('/admin/subscriptions', { params: { page, limit, plan, userId } }),
-      () => api.get('/admin/subscriptions', { params: { page, limit, plan, id: userId } }),
-      () => api.get('/admin/subscriptions', { params: { page, limit, plan } }),
-    ]),
+  getSubscriptions: (
+    pageOrQuery: number | AdminSubscriptionsQueryParams = 1,
+    limit = 20,
+    plan?: string,
+    userId?: string
+  ) => {
+    const params: AdminSubscriptionsQueryParams =
+      typeof pageOrQuery === 'object'
+        ? {
+            page: pageOrQuery.page ?? 1,
+            limit: pageOrQuery.limit ?? 20,
+            ...pageOrQuery,
+          }
+        : {
+            page: pageOrQuery,
+            limit,
+            plan,
+            userId,
+          }
+
+    return tryApiRequests([
+      () => api.get('/admin/subscriptions', { params }),
+      () => api.get('/admin/subscriptions', { params: { ...params, id: params.userId } }),
+      () => api.get('/admin/subscriptions', {
+        params: {
+          page: params.page,
+          limit: params.limit,
+          plan: params.plan,
+        },
+      }),
+    ])
+  },
   getUserSubscriptionHistory: async (userId: string) => {
     try {
       return await tryApiRequests([

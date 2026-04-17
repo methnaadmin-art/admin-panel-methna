@@ -165,26 +165,20 @@ export default function ChatPage() {
     setLoading(true)
     setError('')
     try {
-      const { data } = await adminApi.getConversations(page, limit, search.trim() || undefined)
-      const normalizedList = extractCollection(data)
+      const { data } = await adminApi.getConversations(
+        page,
+        limit,
+        search.trim() || undefined,
+        {
+          locked: filterLocked ? true : undefined,
+          flagged: filterFlagged ? true : undefined,
+        }
+      )
+      const list = extractCollection(data)
         .map((conversation) => normalizeConversation(conversation))
         .filter((conversation): conversation is ConversationDetail => Boolean(conversation))
-      const trimmedSearch = search.trim().toLowerCase()
-      const list = trimmedSearch
-        ? normalizedList.filter((conversation) => {
-            const haystack = [
-              `${conversation.user1?.firstName || ''} ${conversation.user1?.lastName || ''}`,
-              `${conversation.user2?.firstName || ''} ${conversation.user2?.lastName || ''}`,
-              conversation.user1?.email || '',
-              conversation.user2?.email || '',
-              conversation.lastMessageContent || '',
-            ].join(' ').toLowerCase()
-
-            return haystack.includes(trimmedSearch)
-          })
-        : normalizedList
       setConversations(list)
-      setTotal(trimmedSearch ? list.length : Number(data?.total ?? list.length))
+      setTotal(Number(data?.total ?? list.length))
     } catch (err) {
       console.error(err)
       setConversations([])

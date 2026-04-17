@@ -31,6 +31,8 @@ import {
   ChevronLeft,
   ChevronRight,
   Send,
+  CalendarDays,
+  FilterX,
 } from 'lucide-react'
 
 const statusConfig: Record<string, { label: string; variant: any; icon: any }> = {
@@ -49,6 +51,12 @@ export default function SupportPage() {
   const [statusFilter, setStatusFilter] = useState('all')
   const [priorityFilter, setPriorityFilter] = useState('all')
   const [search, setSearch] = useState('')
+  const [userIdFilter, setUserIdFilter] = useState('')
+  const [assignedToFilter, setAssignedToFilter] = useState('')
+  const [dateFromFilter, setDateFromFilter] = useState('')
+  const [dateToFilter, setDateToFilter] = useState('')
+  const [sortBy, setSortBy] = useState('createdAt')
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc')
   const [loading, setLoading] = useState(true)
 
   const [replyDialog, setReplyDialog] = useState<{ open: boolean; ticket: any }>({ open: false, ticket: null })
@@ -63,6 +71,12 @@ export default function SupportPage() {
       if (statusFilter !== 'all') params.status = statusFilter
       if (priorityFilter !== 'all') params.priority = priorityFilter
       if (search.trim()) params.search = search.trim()
+      if (userIdFilter.trim()) params.userId = userIdFilter.trim()
+      if (assignedToFilter.trim()) params.assignedToId = assignedToFilter.trim()
+      if (dateFromFilter) params.dateFrom = dateFromFilter
+      if (dateToFilter) params.dateTo = dateToFilter
+      params.sortBy = sortBy
+      params.sortOrder = sortOrder
       const { data } = await adminApi.getTickets(params)
       setTickets(data.tickets || data || [])
       setTotal(data.total || 0)
@@ -73,7 +87,31 @@ export default function SupportPage() {
     }
   }
 
-  useEffect(() => { fetchTickets() }, [page, statusFilter, priorityFilter, search])
+  useEffect(() => { fetchTickets() }, [
+    page,
+    statusFilter,
+    priorityFilter,
+    search,
+    userIdFilter,
+    assignedToFilter,
+    dateFromFilter,
+    dateToFilter,
+    sortBy,
+    sortOrder,
+  ])
+
+  const resetFilters = () => {
+    setStatusFilter('all')
+    setPriorityFilter('all')
+    setSearch('')
+    setUserIdFilter('')
+    setAssignedToFilter('')
+    setDateFromFilter('')
+    setDateToFilter('')
+    setSortBy('createdAt')
+    setSortOrder('desc')
+    setPage(1)
+  }
 
   const handleReply = async () => {
     if (!replyDialog.ticket || !replyText.trim()) return
@@ -152,15 +190,33 @@ export default function SupportPage() {
       </div>
 
       {/* Filters */}
-      <div className="flex flex-wrap items-center gap-3">
-        <Input
-          placeholder="Search tickets..."
-          value={search}
-          onChange={(e) => { setSearch(e.target.value); setPage(1) }}
-          className="w-64"
-        />
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8">
+        <div className="xl:col-span-2">
+          <Input
+            placeholder="Search tickets, user, assignee..."
+            value={search}
+            onChange={(e) => { setSearch(e.target.value); setPage(1) }}
+          />
+        </div>
+
+        <div>
+          <Input
+            placeholder="User ID"
+            value={userIdFilter}
+            onChange={(e) => { setUserIdFilter(e.target.value); setPage(1) }}
+          />
+        </div>
+
+        <div>
+          <Input
+            placeholder="Assigned Staff ID"
+            value={assignedToFilter}
+            onChange={(e) => { setAssignedToFilter(e.target.value); setPage(1) }}
+          />
+        </div>
+
         <Select value={statusFilter} onValueChange={(v) => { setStatusFilter(v); setPage(1) }}>
-          <SelectTrigger className="w-44">
+          <SelectTrigger>
             <SelectValue placeholder="Filter by status" />
           </SelectTrigger>
           <SelectContent>
@@ -171,8 +227,9 @@ export default function SupportPage() {
             <SelectItem value="closed">{t('support.closed')}</SelectItem>
           </SelectContent>
         </Select>
+
         <Select value={priorityFilter} onValueChange={(v) => { setPriorityFilter(v); setPage(1) }}>
-          <SelectTrigger className="w-40">
+          <SelectTrigger>
             <SelectValue placeholder="Priority" />
           </SelectTrigger>
           <SelectContent>
@@ -183,6 +240,58 @@ export default function SupportPage() {
             <SelectItem value="low">Low</SelectItem>
           </SelectContent>
         </Select>
+
+        <Select value={sortBy} onValueChange={(v) => { setSortBy(v); setPage(1) }}>
+          <SelectTrigger>
+            <SelectValue placeholder="Sort by" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="createdAt">Created</SelectItem>
+            <SelectItem value="updatedAt">Updated</SelectItem>
+            <SelectItem value="repliedAt">Replied At</SelectItem>
+            <SelectItem value="status">Status</SelectItem>
+            <SelectItem value="priority">Priority</SelectItem>
+          </SelectContent>
+        </Select>
+
+        <Select value={sortOrder} onValueChange={(v) => { setSortOrder(v as 'asc' | 'desc'); setPage(1) }}>
+          <SelectTrigger>
+            <SelectValue placeholder="Order" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="desc">Newest First</SelectItem>
+            <SelectItem value="asc">Oldest First</SelectItem>
+          </SelectContent>
+        </Select>
+
+        <div className="grid gap-2 sm:grid-cols-2 xl:col-span-2">
+          <div>
+            <label className="mb-1 flex items-center gap-1 text-[11px] font-medium text-muted-foreground">
+              <CalendarDays className="h-3.5 w-3.5" /> From
+            </label>
+            <Input
+              type="date"
+              value={dateFromFilter}
+              onChange={(e) => { setDateFromFilter(e.target.value); setPage(1) }}
+            />
+          </div>
+          <div>
+            <label className="mb-1 flex items-center gap-1 text-[11px] font-medium text-muted-foreground">
+              <CalendarDays className="h-3.5 w-3.5" /> To
+            </label>
+            <Input
+              type="date"
+              value={dateToFilter}
+              onChange={(e) => { setDateToFilter(e.target.value); setPage(1) }}
+            />
+          </div>
+        </div>
+
+        <div className="xl:col-span-8 flex justify-end">
+          <Button variant="outline" size="sm" className="gap-2" onClick={resetFilters}>
+            <FilterX className="h-4 w-4" /> Reset Filters
+          </Button>
+        </div>
       </div>
 
       {/* Tickets List */}
@@ -228,6 +337,11 @@ export default function SupportPage() {
                                 {ticket.user ? `${ticket.user.firstName} ${ticket.user.lastName}` : ticket.userId?.slice(0, 8)}
                               </span>
                             </div>
+                            {ticket.assignedTo && (
+                              <span className="text-xs text-muted-foreground">
+                                Assigned to: {ticket.assignedTo.firstName} {ticket.assignedTo.lastName}
+                              </span>
+                            )}
                             <span className="text-[10px] text-muted-foreground">{formatDateTime(ticket.createdAt)}</span>
                           </div>
 
