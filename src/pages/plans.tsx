@@ -51,12 +51,54 @@ interface PlanFormState {
   sortOrder: string
   isActive: boolean
   isVisible: boolean
-  featureFlagsJson: string
+  featureFlags: AdminPlanFeatures
   limitsJson: string
+}
+
+interface FeatureFlagOption {
+  key: keyof AdminPlanFeatures
+  label: string
+  description?: string
 }
 
 const EMPTY_FEATURES: AdminPlanFeatures = {}
 const EMPTY_LIMITS: AdminPlanLimits = {}
+
+const FEATURE_FLAG_OPTIONS: FeatureFlagOption[] = [
+  { key: 'unlimitedLikes', label: 'Unlimited Likes' },
+  { key: 'unlimitedRewinds', label: 'Unlimited Rewinds' },
+  { key: 'advancedFilters', label: 'Advanced Filters' },
+  { key: 'seeWhoLikesYou', label: 'See Who Likes You' },
+  { key: 'whoLikedMe', label: 'Who Liked Me' },
+  { key: 'readReceipts', label: 'Read Receipts' },
+  { key: 'typingIndicators', label: 'Typing Indicators' },
+  { key: 'invisibleMode', label: 'Invisible Mode' },
+  { key: 'ghostMode', label: 'Ghost Mode' },
+  { key: 'passportMode', label: 'Passport Mode' },
+  { key: 'boost', label: 'Boost Access' },
+  { key: 'likes', label: 'Likes Access' },
+  { key: 'premiumBadge', label: 'Premium Badge' },
+  { key: 'hideAds', label: 'Hide Ads' },
+  { key: 'rematch', label: 'Rematch' },
+  { key: 'videoChat', label: 'Video Chat' },
+  { key: 'superLike', label: 'Super Like' },
+  { key: 'profileBoostPriority', label: 'Profile Boost Priority' },
+  { key: 'priorityMatching', label: 'Priority Matching' },
+  { key: 'improvedVisits', label: 'Improved Visits' },
+]
+
+const normalizeFeatureFlags = (value?: AdminPlanFeatures | null): AdminPlanFeatures => {
+  const normalized: AdminPlanFeatures = {}
+
+  for (const option of FEATURE_FLAG_OPTIONS) {
+    const featureValue = value?.[option.key]
+    if (typeof featureValue === 'boolean') {
+      normalized[option.key] = featureValue
+    }
+  }
+
+  return normalized
+}
 
 const createInitialFormState = (plan?: AdminPlan): PlanFormState => {
   if (!plan) {
@@ -75,7 +117,7 @@ const createInitialFormState = (plan?: AdminPlan): PlanFormState => {
       sortOrder: '0',
       isActive: true,
       isVisible: true,
-      featureFlagsJson: JSON.stringify(EMPTY_FEATURES, null, 2),
+      featureFlags: normalizeFeatureFlags(EMPTY_FEATURES),
       limitsJson: JSON.stringify(EMPTY_LIMITS, null, 2),
     }
   }
@@ -95,7 +137,7 @@ const createInitialFormState = (plan?: AdminPlan): PlanFormState => {
     sortOrder: String(plan.sortOrder ?? 0),
     isActive: Boolean(plan.isActive ?? true),
     isVisible: Boolean(plan.isVisible ?? true),
-    featureFlagsJson: JSON.stringify(plan.featureFlags || EMPTY_FEATURES, null, 2),
+    featureFlags: normalizeFeatureFlags(plan.featureFlags || EMPTY_FEATURES),
     limitsJson: JSON.stringify(plan.limits || EMPTY_LIMITS, null, 2),
   }
 }
@@ -174,7 +216,20 @@ export default function PlansPage() {
     setDialogOpen(true)
   }
 
-  const onFormChange = (key: keyof PlanFormState, value: string | boolean) => {
+  const onFeatureFlagChange = (key: keyof AdminPlanFeatures, checked: boolean) => {
+    setForm((prev) => ({
+      ...prev,
+      featureFlags: {
+        ...prev.featureFlags,
+        [key]: checked,
+      },
+    }))
+  }
+
+  const onFormChange = (
+    key: Exclude<keyof PlanFormState, 'featureFlags'>,
+    value: string | boolean,
+  ) => {
     setForm((prev) => ({ ...prev, [key]: value }))
   }
 
@@ -194,7 +249,7 @@ export default function PlansPage() {
       sortOrder: Number(form.sortOrder || 0),
       isActive: form.isActive,
       isVisible: form.isVisible,
-      featureFlags: parseJsonObject<AdminPlanFeatures>(form.featureFlagsJson, 'Feature flags'),
+      featureFlags: normalizeFeatureFlags(form.featureFlags),
       limits: parseJsonObject<AdminPlanLimits>(form.limitsJson, 'Limits'),
     }
 
@@ -483,23 +538,33 @@ export default function PlansPage() {
               </div>
             </div>
 
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className="space-y-1.5">
-                <label className="text-sm font-medium">Feature Flags (JSON)</label>
-                <Textarea
-                  className="min-h-[180px] font-mono text-xs"
-                  value={form.featureFlagsJson}
-                  onChange={(e) => onFormChange('featureFlagsJson', e.target.value)}
-                />
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">Feature Flags</label>
+              <div className="grid gap-2 sm:grid-cols-2">
+                {FEATURE_FLAG_OPTIONS.map((option) => (
+                  <div key={option.key} className="flex items-center justify-between rounded-md border px-3 py-2">
+                    <div className="pr-4">
+                      <p className="text-sm">{option.label}</p>
+                      {option.description ? (
+                        <p className="text-xs text-muted-foreground">{option.description}</p>
+                      ) : null}
+                    </div>
+                    <Switch
+                      checked={Boolean(form.featureFlags[option.key])}
+                      onCheckedChange={(checked) => onFeatureFlagChange(option.key, checked)}
+                    />
+                  </div>
+                ))}
               </div>
-              <div className="space-y-1.5">
-                <label className="text-sm font-medium">Limits (JSON)</label>
-                <Textarea
-                  className="min-h-[180px] font-mono text-xs"
-                  value={form.limitsJson}
-                  onChange={(e) => onFormChange('limitsJson', e.target.value)}
-                />
-              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">Limits (JSON)</label>
+              <Textarea
+                className="min-h-[180px] font-mono text-xs"
+                value={form.limitsJson}
+                onChange={(e) => onFormChange('limitsJson', e.target.value)}
+              />
             </div>
           </div>
 
