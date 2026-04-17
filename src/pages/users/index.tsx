@@ -556,6 +556,9 @@ export default function UsersPage() {
     user: null,
   })
   const [deleteLoading, setDeleteLoading] = useState(false)
+  const [selectedUserIds, setSelectedUserIds] = useState<string[]>([])
+  const [bulkDeleteDialogOpen, setBulkDeleteDialogOpen] = useState(false)
+  const [bulkDeleteLoading, setBulkDeleteLoading] = useState(false)
 
   const [premiumDialog, setPremiumDialog] = useState<PremiumDialogState>({
     open: false,
@@ -568,10 +571,41 @@ export default function UsersPage() {
 
   const [rowActionLoading, setRowActionLoading] = useState('')
 
+  const visibleUserIds = useMemo(
+    () => users.map((user) => String(user.id || '')).filter(Boolean),
+    [users]
+  )
+
+  const allVisibleSelected =
+    visibleUserIds.length > 0 && visibleUserIds.every((userId) => selectedUserIds.includes(userId))
+
+  const someVisibleSelected =
+    visibleUserIds.some((userId) => selectedUserIds.includes(userId)) && !allVisibleSelected
+
   const patchUserInTable = (userId: string, update: (user: UserRecord) => UserRecord) => {
     setUsers((currentUsers) =>
       currentUsers.map((user) => (user.id === userId ? update(user) : user))
     )
+  }
+
+  const toggleUserSelection = (userId: string, checked: boolean) => {
+    setSelectedUserIds((currentIds) => {
+      if (checked) {
+        return currentIds.includes(userId) ? currentIds : [...currentIds, userId]
+      }
+
+      return currentIds.filter((id) => id !== userId)
+    })
+  }
+
+  const toggleSelectAllVisible = (checked: boolean) => {
+    setSelectedUserIds((currentIds) => {
+      if (checked) {
+        return Array.from(new Set([...currentIds, ...visibleUserIds]))
+      }
+
+      return currentIds.filter((id) => !visibleUserIds.includes(id))
+    })
   }
 
   const fetchUsers = async (options?: { silent?: boolean }) => {
@@ -669,6 +703,11 @@ export default function UsersPage() {
     return () => window.clearTimeout(timeoutId)
   }, [searchInput, search])
 
+  useEffect(() => {
+    const visibleUserIdSet = new Set(visibleUserIds)
+    setSelectedUserIds((currentIds) => currentIds.filter((id) => visibleUserIdSet.has(id)))
+  }, [visibleUserIds])
+
   const openPremiumDialog = (user: UserRecord) => {
     const premium = getPremiumSnapshot(user)
     setPremiumDialog({
@@ -716,6 +755,7 @@ export default function UsersPage() {
     try {
       await adminApi.deleteUser(deleteDialog.user.id)
       invalidateAdminUserPoolCache()
+      setSelectedUserIds((currentIds) => currentIds.filter((id) => id !== deleteDialog.user?.id))
       toast({ title: 'User deleted', variant: 'warning' })
       setDeleteDialog({ open: false, user: null })
       await fetchUsers({ silent: true })
@@ -727,6 +767,35 @@ export default function UsersPage() {
       })
     } finally {
       setDeleteLoading(false)
+    }
+  }
+
+  const handleBulkDelete = async () => {
+    if (selectedUserIds.length === 0) {
+      return
+    }
+
+    setBulkDeleteLoading(true)
+    try {
+      const response = await adminApi.bulkDeleteUsers(selectedUserIds)
+      const deletedCount = response?.data?.deletedCount ?? selectedUserIds.length
+      invalidateAdminUserPoolCache()
+      setBulkDeleteDialogOpen(false)
+      setSelectedUserIds([])
+      toast({
+        title: 'Users permanently deleted',
+        description: `${deletedCount} account${deletedCount === 1 ? '' : 's'} removed from the database.`,
+        variant: 'warning',
+      })
+      await fetchUsers({ silent: true })
+    } catch (error: any) {
+      toast({
+        title: 'Failed to permanently delete users',
+        description: error?.response?.data?.message || 'Please try again.',
+        variant: 'error',
+      })
+    } finally {
+      setBulkDeleteLoading(false)
     }
   }
 
@@ -1003,6 +1072,28 @@ export default function UsersPage() {
         </div>
       )}
 
+      {selectedUserIds.length > 0 && (
+        <div className="flex flex-col gap-3 rounded-lg border border-red-200 bg-red-50/70 p-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="text-sm font-semibold text-red-700">
+              {selectedUserIds.length} user{selectedUserIds.length === 1 ? '' : 's'} selected
+            </p>
+            <p className="text-xs text-red-600">
+              Permanent delete removes the selected accounts from the database.
+            </p>
+          </div>
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={() => setSelectedUserIds([])}>
+              Clear selection
+            </Button>
+            <Button variant="destructive" className="gap-2" onClick={() => setBulkDeleteDialogOpen(true)}>
+              <Trash2 className="h-4 w-4" />
+              Permanently delete selected
+            </Button>
+          </div>
+        </div>
+      )}
+
       <Card>
         <CardHeader className="pb-3">
           <CardTitle className="flex items-center gap-2 text-lg">
@@ -1024,6 +1115,16 @@ export default function UsersPage() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b text-left text-muted-foreground">
+                    <th className="pb-3 pe-3 font-medium">
+                      <input
+                        type="checkbox"
+                        aria-label="Select all visible users"
+                        title={someVisibleSelected ? 'Some visible users selected' : 'Select all visible users'}
+                        className="h-4 w-4 rounded border-border accent-primary"
+                        checked={allVisibleSelected}
+                        onChange={(event) => toggleSelectAllVisible(event.target.checked)}
+                      />
+                    </th>
                     <th className="pb-3 pe-4 font-medium">{t('users.name')}</th>
                     <th className="pb-3 pe-4 font-medium">{t('users.email')}</th>
                     <th className="pb-3 pe-4 font-medium">{t('users.status')}</th>
@@ -1042,6 +1143,15 @@ export default function UsersPage() {
 
                     return (
                       <tr key={user.id} className="hover:bg-muted/50 transition-colors">
+                        <td className="py-3 pr-3 align-top">
+                          <input
+                            type="checkbox"
+                            aria-label={`Select ${firstString(user.firstName, user.name)} ${user.lastName || ''}`.trim()}
+                            className="mt-1 h-4 w-4 rounded border-border accent-primary"
+                            checked={selectedUserIds.includes(String(user.id))}
+                            onChange={(event) => toggleUserSelection(String(user.id), event.target.checked)}
+                          />
+                        </td>
                         <td className="py-3 pr-4">
                           <div className="flex items-center gap-3">
                             <Avatar className="h-8 w-8">
@@ -1243,6 +1353,29 @@ export default function UsersPage() {
             </Button>
             <Button variant="destructive" onClick={handleDelete} disabled={deleteLoading}>
               {deleteLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : t('common.delete')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={bulkDeleteDialogOpen} onOpenChange={setBulkDeleteDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Permanently delete selected users</DialogTitle>
+            <DialogDescription>
+              This will remove <strong>{selectedUserIds.length}</strong> selected account{selectedUserIds.length === 1 ? '' : 's'} from the database. This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setBulkDeleteDialogOpen(false)}
+              disabled={bulkDeleteLoading}
+            >
+              {t('common.cancel')}
+            </Button>
+            <Button variant="destructive" onClick={handleBulkDelete} disabled={bulkDeleteLoading}>
+              {bulkDeleteLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Delete forever'}
             </Button>
           </DialogFooter>
         </DialogContent>

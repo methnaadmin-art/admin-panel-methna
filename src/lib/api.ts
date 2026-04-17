@@ -444,6 +444,8 @@ export const adminApi = {
     ])
   },
   deleteUser: (id: string) => api.delete(`/admin/users/${id}`),
+  bulkDeleteUsers: (userIds: string[]) =>
+    api.post('/admin/users/bulk-delete', { userIds }),
 
   // Document Verification
   getPendingDocuments: () =>
