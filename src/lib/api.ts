@@ -457,7 +457,17 @@ export const adminApi = {
       () => api.get('/admin/users/pending-documents'),
     ]),
   getVerifications: (params: AdminVerificationQueryParams = {}) =>
-    api.get('/admin/verifications', { params }),
+    tryApiRequests([
+      () => api.get('/admin/verifications', { params }),
+      () =>
+        params.status === 'pending' && (params.type === 'marital_status' || params.type === 'identity')
+          ? api.get('/admin/documents/pending')
+          : Promise.reject({ response: { status: 404 } }),
+      () =>
+        params.status === 'pending'
+          ? api.get('/admin/verifications/pending')
+          : Promise.reject({ response: { status: 404 } }),
+    ]),
   verifyDocument: (userId: string, approved: boolean, rejectionReason?: string) =>
     tryApiRequests([
       () => api.patch(`/admin/users/${userId}/verification/marital-status`, {
