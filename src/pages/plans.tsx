@@ -211,6 +211,46 @@ export default function PlansPage() {
       throw new Error('Duration must be a positive number of days')
     }
 
+    const googleProductId = payload.googleProductId?.trim() || undefined
+    const googleBasePlanId = payload.googleBasePlanId?.trim() || undefined
+    const isPaidPlan = payload.price > 0
+
+    payload.googleProductId = googleProductId
+    payload.googleBasePlanId = googleBasePlanId
+
+    if ((googleProductId && !googleBasePlanId) || (!googleProductId && googleBasePlanId)) {
+      throw new Error('Google Product ID and Google Base Plan ID must both be provided together')
+    }
+
+    if (isPaidPlan && !googleProductId) {
+      throw new Error('Google Product ID is required for paid plans')
+    }
+
+    if (isPaidPlan && !googleBasePlanId) {
+      throw new Error('Google Base Plan ID is required for paid plans')
+    }
+
+    if (googleProductId && googleBasePlanId) {
+      const normalizedProduct = googleProductId.toLowerCase()
+      const normalizedBasePlan = googleBasePlanId.toLowerCase()
+      const duplicate = plans.find((plan) => {
+        if (editingPlan && plan.id === editingPlan.id) {
+          return false
+        }
+
+        return (
+          String(plan.googleProductId || '').trim().toLowerCase() === normalizedProduct &&
+          String(plan.googleBasePlanId || '').trim().toLowerCase() === normalizedBasePlan
+        )
+      })
+
+      if (duplicate) {
+        throw new Error(
+          `Google mapping ${googleProductId} + ${googleBasePlanId} is already used by plan ${duplicate.code}`,
+        )
+      }
+    }
+
     return payload
   }
 
@@ -395,7 +435,7 @@ export default function PlansPage() {
                   onChange={(e) => onFormChange('googleProductId', e.target.value)}
                   placeholder="com.methna.app.premium_monthly"
                 />
-                <p className="text-xs text-muted-foreground">Mobile (Android) billing via Google Play</p>
+                <p className="text-xs text-muted-foreground">Mobile (Android) billing via Google Play. Can be shared across plans when base plans differ.</p>
               </div>
               <div className="space-y-1.5">
                 <label className="text-sm font-medium">Google Base Plan ID</label>
@@ -404,6 +444,7 @@ export default function PlansPage() {
                   onChange={(e) => onFormChange('googleBasePlanId', e.target.value)}
                   placeholder="monthly001"
                 />
+                <p className="text-xs text-muted-foreground">Required for paid plans. Unique with Google Product ID as a pair.</p>
               </div>
             </div>
 
