@@ -100,6 +100,26 @@ const normalizeFeatureFlags = (value?: AdminPlanFeatures | null): AdminPlanFeatu
   return normalized
 }
 
+const normalizeFeatureFlagsFromPlan = (
+  value?: AdminPlanFeatures | null,
+  entitlements?: Record<string, any> | null,
+): AdminPlanFeatures => {
+  const normalized = normalizeFeatureFlags(value)
+
+  for (const option of FEATURE_FLAG_OPTIONS) {
+    if (typeof normalized[option.key] === 'boolean') {
+      continue
+    }
+
+    const entitlementValue = entitlements?.[option.key]
+    if (typeof entitlementValue === 'boolean') {
+      normalized[option.key] = entitlementValue
+    }
+  }
+
+  return normalized
+}
+
 const createInitialFormState = (plan?: AdminPlan): PlanFormState => {
   if (!plan) {
     return {
@@ -137,7 +157,10 @@ const createInitialFormState = (plan?: AdminPlan): PlanFormState => {
     sortOrder: String(plan.sortOrder ?? 0),
     isActive: Boolean(plan.isActive ?? true),
     isVisible: Boolean(plan.isVisible ?? true),
-    featureFlags: normalizeFeatureFlags(plan.featureFlags || EMPTY_FEATURES),
+    featureFlags: normalizeFeatureFlagsFromPlan(
+      plan.featureFlags || EMPTY_FEATURES,
+      plan.entitlements,
+    ),
     limitsJson: JSON.stringify(plan.limits || EMPTY_LIMITS, null, 2),
   }
 }
