@@ -488,9 +488,17 @@ export const adminApi = {
     ]),
   getVerifications: (params: AdminVerificationQueryParams = {}) => {
     const normalizedParams = sanitizeAdminVerificationParams(params)
+    const paramsWithoutType =
+      normalizedParams.type != null
+        ? { ...normalizedParams, type: undefined }
+        : normalizedParams
 
     return tryApiRequests([
       () => api.get('/admin/verifications', { params: normalizedParams }),
+      () =>
+        normalizedParams.type != null
+          ? api.get('/admin/verifications', { params: paramsWithoutType })
+          : Promise.reject({ response: { status: 404 } }),
       () =>
         normalizedParams.status === 'pending' && normalizedParams.type === 'identity'
           ? api.get('/admin/documents/pending')
@@ -498,6 +506,10 @@ export const adminApi = {
       () =>
         normalizedParams.status === 'pending'
           ? api.get('/admin/verifications/pending')
+          : Promise.reject({ response: { status: 404 } }),
+      () =>
+        normalizedParams.status === 'pending'
+          ? api.get('/admin/verification/documents/pending')
           : Promise.reject({ response: { status: 404 } }),
     ])
   },
