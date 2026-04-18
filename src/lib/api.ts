@@ -325,6 +325,36 @@ export const authApi = {
   logout: () => api.post('/auth/logout'),
 }
 
+const MAX_ADMIN_PAGINATION_LIMIT = 100
+const DEFAULT_VERIFICATION_QUEUE_LIMIT = 100
+
+const sanitizeAdminVerificationParams = (
+  params: AdminVerificationQueryParams = {}
+): AdminVerificationQueryParams => {
+  const normalizedParams: AdminVerificationQueryParams = { ...params }
+
+  if (typeof normalizedParams.page === 'number') {
+    if (!Number.isFinite(normalizedParams.page) || normalizedParams.page < 1) {
+      normalizedParams.page = 1
+    } else {
+      normalizedParams.page = Math.trunc(normalizedParams.page)
+    }
+  }
+
+  if (typeof normalizedParams.limit === 'number') {
+    if (!Number.isFinite(normalizedParams.limit)) {
+      normalizedParams.limit = DEFAULT_VERIFICATION_QUEUE_LIMIT
+    } else {
+      normalizedParams.limit = Math.min(
+        MAX_ADMIN_PAGINATION_LIMIT,
+        Math.max(1, Math.trunc(normalizedParams.limit))
+      )
+    }
+  }
+
+  return normalizedParams
+}
+
 // ── Admin ────────────────────────────────────────────────────
 
 export const adminApi = {
@@ -450,24 +480,27 @@ export const adminApi = {
   // Document Verification
   getPendingDocuments: () =>
     tryApiRequests([
-      () => api.get('/admin/verifications', { params: { page: 1, limit: 200, status: 'pending', type: 'marital_status' } }),
+      () => api.get('/admin/verifications', { params: { page: 1, limit: 100, status: 'pending', type: 'marital_status' } }),
       () => api.get('/admin/documents/pending'),
       () => api.get('/admin/verifications/pending'),
       () => api.get('/admin/verification/documents/pending'),
       () => api.get('/admin/users/pending-documents'),
     ]),
-  getVerifications: (params: AdminVerificationQueryParams = {}) =>
-    tryApiRequests([
-      () => api.get('/admin/verifications', { params }),
+  getVerifications: (params: AdminVerificationQueryParams = {}) => {
+    const normalizedParams = sanitizeAdminVerificationParams(params)
+
+    return tryApiRequests([
+      () => api.get('/admin/verifications', { params: normalizedParams }),
       () =>
-        params.status === 'pending' && (params.type === 'marital_status' || params.type === 'identity')
+        normalizedParams.status === 'pending' && (normalizedParams.type === 'marital_status' || normalizedParams.type === 'identity')
           ? api.get('/admin/documents/pending')
           : Promise.reject({ response: { status: 404 } }),
       () =>
-        params.status === 'pending'
+        normalizedParams.status === 'pending'
           ? api.get('/admin/verifications/pending')
           : Promise.reject({ response: { status: 404 } }),
-    ]),
+    ])
+  },
   verifyDocument: (userId: string, approved: boolean, rejectionReason?: string) =>
     tryApiRequests([
       () => api.patch(`/admin/users/${userId}/verification/marital-status`, {

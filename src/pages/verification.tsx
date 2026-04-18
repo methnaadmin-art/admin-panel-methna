@@ -57,6 +57,7 @@ type ApiRecord = Record<string, any>
 type UserStatus = 'active' | 'pending_verification' | 'rejected' | 'banned' | 'suspended'
 
 const REFRESH_INTERVAL_MS = 15000
+const VERIFICATION_QUEUE_LIMIT = 100
 
 const isRecord = (value: unknown): value is ApiRecord =>
   typeof value === 'object' && value !== null
@@ -400,8 +401,8 @@ export default function VerificationPage() {
 
     try {
       const [selfieQueueResult, maritalQueueResult] = await Promise.all([
-        adminApi.getVerifications({ page: 1, limit: 250, status: statusFilter, type: 'selfie' }),
-        adminApi.getVerifications({ page: 1, limit: 250, status: statusFilter, type: 'marital_status' }),
+        adminApi.getVerifications({ page: 1, limit: VERIFICATION_QUEUE_LIMIT, status: statusFilter, type: 'selfie' }),
+        adminApi.getVerifications({ page: 1, limit: VERIFICATION_QUEUE_LIMIT, status: statusFilter, type: 'marital_status' }),
       ])
 
       const selfieQueueRecords = extractItems(selfieQueueResult.data)
