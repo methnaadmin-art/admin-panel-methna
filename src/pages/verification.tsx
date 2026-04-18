@@ -509,52 +509,68 @@ export default function VerificationPage() {
       })
     }
 
-    try {
-      const [selfieQueueResult, identityQueueResult, maritalQueueResult] = await Promise.all([
-        adminApi.getVerifications({ page: 1, limit: VERIFICATION_QUEUE_LIMIT, status: statusFilter, type: 'selfie' }),
-        adminApi.getVerifications({ page: 1, limit: VERIFICATION_QUEUE_LIMIT, status: statusFilter, type: 'identity' }),
-        adminApi.getVerifications({ page: 1, limit: VERIFICATION_QUEUE_LIMIT, status: statusFilter, type: 'marital_status' }),
-      ])
+    const [selfieQueueResult, identityQueueResult, maritalQueueResult] = await Promise.allSettled([
+      adminApi.getVerifications({ page: 1, limit: VERIFICATION_QUEUE_LIMIT, status: statusFilter, type: 'selfie' }),
+      adminApi.getVerifications({ page: 1, limit: VERIFICATION_QUEUE_LIMIT, status: statusFilter, type: 'identity' }),
+      adminApi.getVerifications({ page: 1, limit: VERIFICATION_QUEUE_LIMIT, status: statusFilter, type: 'marital_status' }),
+    ])
 
+    const failedQueues: string[] = []
+
+    if (selfieQueueResult.status === 'fulfilled') {
       const nextSelfieUsers = uniqueById(
-        extractItems(selfieQueueResult.data)
+        extractItems(selfieQueueResult.value.data)
           .map(normalizePendingSelfieUser)
           .filter((user): user is PendingVerificationUser => Boolean(user))
       )
+      setSelfieUsers(nextSelfieUsers)
+    } else {
+      console.error(selfieQueueResult.reason)
+      failedQueues.push('selfie')
+      setSelfieUsers([])
+    }
 
+    if (identityQueueResult.status === 'fulfilled') {
       const nextIdentityUsers = uniqueById(
-        extractItems(identityQueueResult.data)
+        extractItems(identityQueueResult.value.data)
           .map((record) => normalizePendingDocumentUser(record, 'identity'))
           .filter((user): user is PendingDocumentUser => Boolean(user))
       )
+      setIdentityUsers(nextIdentityUsers)
+    } else {
+      console.error(identityQueueResult.reason)
+      failedQueues.push('identity')
+      setIdentityUsers([])
+    }
 
+    if (maritalQueueResult.status === 'fulfilled') {
       const nextMaritalUsers = uniqueById(
-        extractItems(maritalQueueResult.data)
+        extractItems(maritalQueueResult.value.data)
           .map((record) => normalizePendingDocumentUser(record, 'marital_status'))
           .filter((user): user is PendingDocumentUser => Boolean(user))
       )
-
-      setSelfieUsers(nextSelfieUsers)
-      setIdentityUsers(nextIdentityUsers)
       setMaritalUsers(nextMaritalUsers)
-      setLastSyncedAt(new Date().toISOString())
-    } catch (error) {
-      console.error(error)
+    } else {
+      console.error(maritalQueueResult.reason)
+      failedQueues.push('marital')
+      setMaritalUsers([])
+    }
 
-      if (!silent) {
-        toast({
-          title: t('common.error'),
-          description: 'Failed to load verification queues.',
-          variant: 'error',
-        })
-      }
-    } finally {
-      setLoading({
-        selfie: false,
-        identity: false,
-        marital: false,
+    if (failedQueues.length === 0) {
+      setLastSyncedAt(new Date().toISOString())
+    } else if (!silent) {
+      toast({
+        title: t('common.error'),
+        description: `Failed to load ${failedQueues.join(', ')} queue${failedQueues.length > 1 ? 's' : ''}.`,
+        variant: 'error',
       })
     }
+
+    setLoading({
+      selfie: false,
+      identity: false,
+      marital: false,
+    })
   }
 
   useEffect(() => {
