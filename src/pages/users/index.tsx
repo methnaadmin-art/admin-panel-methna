@@ -5,6 +5,7 @@ import { adminApi } from '@/lib/api'
 import { fetchAdminUserPool, invalidateAdminUserPoolCache } from '@/lib/admin-user-search'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Textarea } from '@/components/ui/textarea'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import {
@@ -544,10 +545,11 @@ export default function UsersPage() {
     return Object.keys(errors).length === 0
   }
 
-  const [statusDialog, setStatusDialog] = useState<{ open: boolean; user: UserRecord | null; newStatus: string }>({
+  const [statusDialog, setStatusDialog] = useState<{ open: boolean; user: UserRecord | null; newStatus: string; note: string }>({
     open: false,
     user: null,
     newStatus: '',
+    note: '',
   })
   const [statusUpdating, setStatusUpdating] = useState(false)
 
@@ -586,6 +588,15 @@ export default function UsersPage() {
     setUsers((currentUsers) =>
       currentUsers.map((user) => (user.id === userId ? update(user) : user))
     )
+  }
+
+  const closeStatusDialog = () => {
+    setStatusDialog({
+      open: false,
+      user: null,
+      newStatus: '',
+      note: '',
+    })
   }
 
   const toggleUserSelection = (userId: string, checked: boolean) => {
@@ -724,16 +735,34 @@ export default function UsersPage() {
       return
     }
 
+    const isReactivation =
+      statusDialog.newStatus === 'active' &&
+      normalizeUserStatus(statusDialog.user.status) !== 'active'
+    const trimmedNote = statusDialog.note.trim()
+
+    if (isReactivation && trimmedNote.length === 0) {
+      toast({
+        title: 'Activation note required',
+        description: 'Add a short internal note explaining why this account is being reactivated.',
+        variant: 'error',
+      })
+      return
+    }
+
     setStatusUpdating(true)
     try {
-      await adminApi.updateUserStatus(statusDialog.user.id, statusDialog.newStatus)
+      await adminApi.updateUserStatus(statusDialog.user.id, statusDialog.newStatus, {
+        internalAdminNote: trimmedNote || undefined,
+        reason: isReactivation ? 'Reactivated by admin' : undefined,
+      })
       invalidateAdminUserPoolCache()
       patchUserInTable(statusDialog.user.id, (user) => ({
         ...user,
         status: statusDialog.newStatus,
+        internalAdminNote: trimmedNote || user.internalAdminNote,
       }))
       toast({ title: 'User status updated', variant: 'success' })
-      setStatusDialog({ open: false, user: null, newStatus: '' })
+      closeStatusDialog()
       await fetchUsers({ silent: true })
     } catch (error: any) {
       toast({
@@ -1226,7 +1255,7 @@ export default function UsersPage() {
                                 {USER_STATUS_OPTIONS.map((option) => (
                                   <DropdownMenuItem
                                     key={option.value}
-                                    onSelect={() => setStatusDialog({ open: true, user, newStatus: option.value })}
+                                    onSelect={() => setStatusDialog({ open: true, user, newStatus: option.value, note: '' })}
                                   >
                                     {option.actionLabel}
                                   </DropdownMenuItem>
@@ -1307,33 +1336,107 @@ export default function UsersPage() {
         </CardContent>
       </Card>
 
-      <Dialog open={statusDialog.open} onOpenChange={(open) => setStatusDialog({ ...statusDialog, open })}>
+      <Dialog open={statusDialog.open} onOpenChange={(open) => { if (!open) closeStatusDialog() }}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>{t('users.status')}</DialogTitle>
+            <DialogTitle>
+              {statusDialog.newStatus === 'active' && normalizeUserStatus(statusDialog.user?.status) !== 'active'
+                ? 'Approve reactivation'
+                : t('users.status')}
+            </DialogTitle>
             <DialogDescription>
-              Set <strong>{statusDialog.user?.firstName} {statusDialog.user?.lastName}</strong> status to{' '}
-              <strong>{getStatusMeta(statusDialog.newStatus).label}</strong>?
+              {statusDialog.newStatus === 'active' && normalizeUserStatus(statusDialog.user?.status) !== 'active'
+                ? (
+                    <>
+                      Confirm that <strong>{statusDialog.user?.firstName} {statusDialog.user?.lastName}</strong> can return to
+                      the platform, then record the reason for the activation.
+                    </>
+                  )
+                : (
+                    <>
+                      Set <strong>{statusDialog.user?.firstName} {statusDialog.user?.lastName}</strong> status to{' '}
+                      <strong>{getStatusMeta(statusDialog.newStatus).label}</strong>?
+                    </>
+                  )}
             </DialogDescription>
           </DialogHeader>
-          <Select value={statusDialog.newStatus} onValueChange={(value) => setStatusDialog({ ...statusDialog, newStatus: value })}>
-            <SelectTrigger>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {USER_STATUS_OPTIONS.map((option) => (
-                <SelectItem key={option.value} value={option.value}>
-                  {option.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+
+          {statusDialog.newStatus === 'active' && normalizeUserStatus(statusDialog.user?.status) !== 'active' ? (
+            <div className="space-y-4">
+              <div className="rounded-lg border bg-muted/30 p-4">
+                <p className="text-sm font-medium">Activation approval</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  This account is currently {getStatusMeta(statusDialog.user?.status).label.toLowerCase()}.
+                  Activating it will restore normal access immediately.
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-sm font-medium" htmlFor="activation-note">
+                  Why are you reactivating this user?
+                </label>
+                <Textarea
+                  id="activation-note"
+                  value={statusDialog.note}
+                  onChange={(event) => setStatusDialog((current) => ({ ...current, note: event.target.value }))}
+                  placeholder="Write the approval reason for the audit history."
+                  rows={4}
+                />
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <Select
+                value={statusDialog.newStatus}
+                onValueChange={(value) => setStatusDialog((current) => ({ ...current, newStatus: value as UserStatus }))}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {USER_STATUS_OPTIONS.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+
+              <div className="space-y-2">
+                <label className="text-sm font-medium" htmlFor="status-note">
+                  Internal admin note
+                </label>
+                <Textarea
+                  id="status-note"
+                  value={statusDialog.note}
+                  onChange={(event) => setStatusDialog((current) => ({ ...current, note: event.target.value }))}
+                  placeholder="Optional note for the moderation history."
+                  rows={3}
+                />
+              </div>
+            </div>
+          )}
           <DialogFooter>
-            <Button variant="outline" onClick={() => setStatusDialog({ open: false, user: null, newStatus: '' })}>
+            <Button variant="outline" onClick={closeStatusDialog}>
               {t('common.cancel')}
             </Button>
-            <Button onClick={handleStatusChange} disabled={statusUpdating || !statusDialog.newStatus}>
-              {statusUpdating ? <Loader2 className="h-4 w-4 animate-spin" /> : t('common.confirm')}
+            <Button
+              onClick={handleStatusChange}
+              disabled={
+                statusUpdating ||
+                !statusDialog.newStatus ||
+                (
+                  statusDialog.newStatus === 'active' &&
+                  normalizeUserStatus(statusDialog.user?.status) !== 'active' &&
+                  statusDialog.note.trim().length === 0
+                )
+              }
+            >
+              {statusUpdating
+                ? <Loader2 className="h-4 w-4 animate-spin" />
+                : statusDialog.newStatus === 'active' && normalizeUserStatus(statusDialog.user?.status) !== 'active'
+                  ? 'Approve activation'
+                  : t('common.confirm')}
             </Button>
           </DialogFooter>
         </DialogContent>

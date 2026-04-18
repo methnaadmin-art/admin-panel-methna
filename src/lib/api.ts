@@ -480,7 +480,7 @@ export const adminApi = {
   // Document Verification
   getPendingDocuments: () =>
     tryApiRequests([
-      () => api.get('/admin/verifications', { params: { page: 1, limit: 100, status: 'pending', type: 'marital_status' } }),
+      () => api.get('/admin/verifications', { params: { page: 1, limit: 100, status: 'pending', type: 'identity' } }),
       () => api.get('/admin/documents/pending'),
       () => api.get('/admin/verifications/pending'),
       () => api.get('/admin/verification/documents/pending'),
@@ -492,7 +492,7 @@ export const adminApi = {
     return tryApiRequests([
       () => api.get('/admin/verifications', { params: normalizedParams }),
       () =>
-        normalizedParams.status === 'pending' && (normalizedParams.type === 'marital_status' || normalizedParams.type === 'identity')
+        normalizedParams.status === 'pending' && normalizedParams.type === 'identity'
           ? api.get('/admin/documents/pending')
           : Promise.reject({ response: { status: 404 } }),
       () =>
@@ -503,10 +503,6 @@ export const adminApi = {
   },
   verifyDocument: (userId: string, approved: boolean, rejectionReason?: string) =>
     tryApiRequests([
-      () => api.patch(`/admin/users/${userId}/verification/marital-status`, {
-        status: approved ? 'approved' : 'rejected',
-        rejectionReason: approved ? undefined : rejectionReason,
-      }),
       () => api.patch(`/admin/documents/${userId}/verify`, { approved, rejectionReason }),
       () => api.patch(`/admin/users/${userId}/document-verification`, { approved, rejectionReason }),
       () => api.patch(`/admin/users/${userId}/verify-document`, { approved, rejectionReason }),
@@ -538,22 +534,6 @@ export const adminApi = {
       () => api.patch(`/admin/users/${userId}/verification/marital-status`, {
         status: approved ? 'approved' : 'rejected',
         rejectionReason,
-      }),
-      () => api.patch(`/admin/users/${userId}`, {
-        maritalVerified: approved,
-        maritalStatusVerified: approved,
-        documentVerified: approved,
-        maritalVerificationStatus: approved ? 'approved' : 'rejected',
-        documentVerificationStatus: approved ? 'approved' : 'rejected',
-        documentRejectionReason: approved ? null : rejectionReason ?? null,
-      }),
-      () => api.put(`/admin/users/${userId}`, {
-        maritalVerified: approved,
-        maritalStatusVerified: approved,
-        documentVerified: approved,
-        maritalVerificationStatus: approved ? 'approved' : 'rejected',
-        documentVerificationStatus: approved ? 'approved' : 'rejected',
-        documentRejectionReason: approved ? null : rejectionReason ?? null,
       }),
     ]),
   autoApproveDocuments: () => api.post('/admin/documents/auto-approve'),

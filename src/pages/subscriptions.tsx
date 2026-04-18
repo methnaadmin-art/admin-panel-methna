@@ -37,7 +37,7 @@ export default function SubscriptionsPage() {
   const navigate = useNavigate()
   const [subscriptions, setSubscriptions] = useState<any[]>([])
   const [total, setTotal] = useState(0)
-  const [counts, setCounts] = useState({ free: 0, premium: 0, gold: 0 })
+  const [counts, setCounts] = useState({ free: 0, trial: 0, premium: 0, gold: 0 })
   const [page, setPage] = useState(1)
   const [limit] = useState(20)
   const [planFilter, setPlanFilter] = useState('all')
@@ -113,6 +113,7 @@ export default function SubscriptionsPage() {
 
   const planBadge = (plan: string) => {
     switch (plan.toLowerCase()) {
+      case 'trial': return <Badge className="bg-sky-500 text-white">Trial</Badge>
       case 'gold': return <Badge className="bg-amber-500 text-white">Gold</Badge>
       case 'premium': return <Badge className="bg-purple-500 text-white">Premium</Badge>
       default: return <Badge variant="secondary">Free</Badge>
@@ -122,6 +123,8 @@ export default function SubscriptionsPage() {
   const statusBadge = (status: string) => {
     switch (status) {
       case 'active': return <Badge variant="success">Active</Badge>
+      case 'trial': return <Badge className="bg-sky-500 text-white">Trial</Badge>
+      case 'past_due': return <Badge variant="warning">Past Due</Badge>
       case 'cancelled': return <Badge variant="warning">Cancelled</Badge>
       case 'expired': return <Badge variant="secondary">Expired</Badge>
       default: return <Badge variant="outline">{status}</Badge>
@@ -149,13 +152,22 @@ export default function SubscriptionsPage() {
       </div>
 
       {/* Plan Breakdown */}
-      <div className="grid gap-4 sm:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
         <Card className="cursor-pointer hover:border-primary/50 transition-colors" onClick={() => { setPlanFilter('free'); setPage(1) }}>
           <CardContent className="flex items-center gap-4 p-6">
             <div className="rounded-lg bg-slate-100 p-3"><Gift className="h-6 w-6 text-slate-500" /></div>
             <div>
               <p className="text-sm text-muted-foreground">Free</p>
               <p className="text-2xl font-bold">{counts.free}</p>
+            </div>
+          </CardContent>
+        </Card>
+        <Card className="cursor-pointer hover:border-primary/50 transition-colors" onClick={() => { setPlanFilter('trial'); setPage(1) }}>
+          <CardContent className="flex items-center gap-4 p-6">
+            <div className="rounded-lg bg-sky-100 p-3"><Zap className="h-6 w-6 text-sky-500" /></div>
+            <div>
+              <p className="text-sm text-muted-foreground">Trial</p>
+              <p className="text-2xl font-bold">{counts.trial}</p>
             </div>
           </CardContent>
         </Card>
@@ -259,6 +271,7 @@ export default function SubscriptionsPage() {
           <SelectContent>
             <SelectItem value="all">{t('users.allPlans')}</SelectItem>
             <SelectItem value="free">{t('users.free')}</SelectItem>
+            <SelectItem value="trial">Trial</SelectItem>
             <SelectItem value="premium">{t('users.premium')}</SelectItem>
             <SelectItem value="gold">{t('users.gold')}</SelectItem>
           </SelectContent>
