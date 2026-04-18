@@ -43,6 +43,8 @@ const normalizePlanCode = (...values: unknown[]) => {
 
 const formatPlanLabel = (planCode: string) => {
   switch (planCode) {
+    case 'trial':
+      return 'Trial'
     case 'gold':
       return 'Gold'
     case 'premium':
@@ -54,6 +56,8 @@ const formatPlanLabel = (planCode: string) => {
 
 const getPlanBadgeClass = (planCode: string) => {
   switch (planCode) {
+    case 'trial':
+      return 'bg-sky-500 text-white'
     case 'gold':
       return 'bg-amber-500 text-white'
     case 'premium':
@@ -171,8 +175,8 @@ export default function SubscriptionFinancePage() {
         planCode,
         planLabel: pickString(planEntity?.name) || formatPlanLabel(planCode),
         status,
-        amount: planCode === 'free' ? 0 : planPrice,
-        monthlyEquivalent: planCode === 'free' ? 0 : monthlyEquivalent,
+        amount: planCode === 'free' || planCode === 'trial' ? 0 : planPrice,
+        monthlyEquivalent: planCode === 'free' || planCode === 'trial' ? 0 : monthlyEquivalent,
         startDate,
         endDate,
         createdAt: pickString(subscription.createdAt),
@@ -181,7 +185,12 @@ export default function SubscriptionFinancePage() {
   }, [planLookup, subscriptions])
 
   const financeSummary = useMemo(() => {
-    const activePaid = normalizedSubscriptions.filter((subscription) => subscription.planCode !== 'free' && subscription.status === 'active')
+    const activePaid = normalizedSubscriptions.filter(
+      (subscription) =>
+        subscription.planCode !== 'free' &&
+        subscription.planCode !== 'trial' &&
+        subscription.status === 'active'
+    )
     const totalCollected = normalizedSubscriptions.reduce((sum, subscription) => sum + subscription.amount, 0)
     const monthlyProjection = activePaid.reduce((sum, subscription) => sum + subscription.monthlyEquivalent, 0)
     const expiringSoonCount = activePaid.filter((subscription) => {

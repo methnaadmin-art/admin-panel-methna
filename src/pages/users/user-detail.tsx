@@ -104,6 +104,8 @@ const normalizePlanCode = (...values: unknown[]) => {
 
 const formatPlanLabel = (planCode?: string) => {
   switch ((planCode || '').toLowerCase()) {
+    case 'trial':
+      return 'Trial'
     case 'gold':
       return 'Gold'
     case 'premium':
@@ -115,6 +117,8 @@ const formatPlanLabel = (planCode?: string) => {
 
 const getPlanBadgeClass = (planCode?: string) => {
   switch ((planCode || '').toLowerCase()) {
+    case 'trial':
+      return 'bg-sky-500 text-white'
     case 'gold':
       return 'bg-amber-500 text-white'
     case 'premium':
@@ -383,9 +387,18 @@ export default function UserDetailPage() {
   const confirmStatusChange = async () => {
     if (!id || !modDialog.status) return
 
-    // Require internalAdminNote when setting a non-active status
-    if (modDialog.status !== 'active' && !modForm.internalAdminNote.trim()) {
-      toast({ title: 'Note Required', description: 'An internal admin note is required when changing a user\'s status. Other admins need to understand why this action was taken.', variant: 'error' })
+    const isActivationApproval =
+      modDialog.status === UserStatus.ACTIVE &&
+      user.status !== UserStatus.ACTIVE
+
+    if ((modDialog.status !== 'active' || isActivationApproval) && !modForm.internalAdminNote.trim()) {
+      toast({
+        title: 'Note Required',
+        description: isActivationApproval
+          ? 'Add an internal note explaining why this account is being reactivated.'
+          : 'An internal admin note is required when changing a user\'s status. Other admins need to understand why this action was taken.',
+        variant: 'error',
+      })
       return
     }
 
@@ -536,13 +549,19 @@ export default function UserDetailPage() {
   )
   const currentSubscriptionView = (() => {
     if (subscription) {
-      const planCode = normalizePlanCode(subscription.plan)
+      const rawSubscription = subscription as Record<string, any>
+      const planCode = normalizePlanCode(
+        rawSubscription.planEntity?.code,
+        rawSubscription.planCode,
+        rawSubscription.plan,
+        rawSubscription.planEntity?.name,
+      )
       return {
         planCode,
         planLabel: formatPlanLabel(planCode),
-        status: pickString(subscription.status) || 'active',
-        startDate: pickString(subscription.startDate),
-        endDate: pickString(subscription.endDate),
+        status: pickString(rawSubscription.status).toLowerCase() || 'active',
+        startDate: pickString(rawSubscription.startDate),
+        endDate: pickString(rawSubscription.endDate),
         billingCycle: 'current plan',
       }
     }
@@ -575,7 +594,7 @@ export default function UserDetailPage() {
     }
   })()
   const subscriptionRemainingDays = (() => {
-    const targetDate = premium?.expiryDate || currentSubscriptionView?.endDate
+    const targetDate = currentSubscriptionView?.endDate || premium?.expiryDate
     const parsedDate = parseSafeDate(targetDate)
 
     if (!parsedDate) {
@@ -584,6 +603,10 @@ export default function UserDetailPage() {
 
     return Math.ceil((parsedDate.getTime() - Date.now()) / SUBSCRIPTION_DAY_MS)
   })()
+  const currentPlanCode = currentSubscriptionView?.planCode || (premium?.isPremium ? 'premium' : 'free')
+  const currentPlanLabel = currentSubscriptionView?.planLabel || (premium?.isPremium ? 'Premium' : 'Free')
+  const currentStatusLabel =
+    currentSubscriptionView?.status || (premium?.isExpired ? 'expired' : premium?.isPremium ? 'active' : 'free')
   const lastSubscriptionEvent = sortedSubscriptionHistory[0] || null
 
   return (
@@ -810,15 +833,11 @@ export default function UserDetailPage() {
                 </CardHeader>
                 <CardContent className="space-y-3">
                   <div className="flex flex-wrap items-center gap-2">
-                    <Badge className={getPlanBadgeClass(currentSubscriptionView?.planCode || (premium?.isPremium ? 'premium' : 'free'))}>
-                      {premium?.isPremium
-                        ? currentSubscriptionView?.planLabel?.toUpperCase() || 'PREMIUM'
-                        : currentSubscriptionView
-                          ? currentSubscriptionView.planLabel.toUpperCase()
-                          : 'FREE'}
+                    <Badge className={getPlanBadgeClass(currentPlanCode)}>
+                      {currentPlanLabel.toUpperCase()}
                     </Badge>
-                    <Badge variant={premium?.isExpired ? 'destructive' : currentSubscriptionView?.status === 'active' ? 'success' : 'secondary'}>
-                      {premium?.isExpired ? 'Expired' : currentSubscriptionView?.status || 'free'}
+                    <Badge variant={currentStatusLabel === 'active' ? 'success' : currentStatusLabel === 'expired' ? 'destructive' : 'secondary'}>
+                      {currentStatusLabel}
                     </Badge>
                   </div>
 
@@ -1085,7 +1104,7 @@ export default function UserDetailPage() {
                 <CardContent className="p-4">
                   <p className="text-xs uppercase tracking-wide text-muted-foreground">Current Plan</p>
                   <p className="mt-2 text-lg font-semibold">
-                    {premium?.isPremium ? 'Premium' : currentSubscriptionView?.planLabel || 'Free'}
+                    {currentPlanLabel}
                   </p>
                 </CardContent>
               </Card>
@@ -1093,7 +1112,7 @@ export default function UserDetailPage() {
                 <CardContent className="p-4">
                   <p className="text-xs uppercase tracking-wide text-muted-foreground">Current Status</p>
                   <p className="mt-2 text-lg font-semibold capitalize">
-                    {premium?.isExpired ? 'Expired' : currentSubscriptionView?.status || 'free'}
+                    {currentStatusLabel}
                   </p>
                 </CardContent>
               </Card>
@@ -1124,15 +1143,11 @@ export default function UserDetailPage() {
                 {currentSubscriptionView || premium ? (
                   <div className="space-y-3">
                     <div className="flex flex-wrap items-center gap-2">
-                      <Badge className={getPlanBadgeClass(currentSubscriptionView?.planCode || (premium?.isPremium ? 'premium' : 'free'))}>
-                        {premium?.isPremium
-                          ? currentSubscriptionView?.planLabel?.toUpperCase() || 'PREMIUM'
-                          : currentSubscriptionView
-                            ? currentSubscriptionView.planLabel.toUpperCase()
-                            : 'FREE'}
+                      <Badge className={getPlanBadgeClass(currentPlanCode)}>
+                        {currentPlanLabel.toUpperCase()}
                       </Badge>
-                      <Badge variant={premium?.isExpired ? 'destructive' : currentSubscriptionView?.status === 'active' ? 'success' : 'secondary'}>
-                        {premium?.isExpired ? 'Expired' : currentSubscriptionView?.status || 'free'}
+                      <Badge variant={currentStatusLabel === 'active' ? 'success' : currentStatusLabel === 'expired' ? 'destructive' : 'secondary'}>
+                        {currentStatusLabel}
                       </Badge>
                     </div>
                     <div className="grid gap-3 md:grid-cols-3">
@@ -1578,13 +1593,52 @@ export default function UserDetailPage() {
       <Dialog open={modDialog.open} onOpenChange={(open) => { if (!open) { setModDialog({ open: false, status: '' }); setModForm({ reason: '', moderationReasonCode: '', moderationReasonText: '', actionRequired: '', supportMessage: '', isUserVisible: true, expiresAt: '', internalAdminNote: '' }) } }}>
         <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Set Status: {modDialog.status.replace(/_/g, ' ')}</DialogTitle>
+            <DialogTitle>
+              {modDialog.status === UserStatus.ACTIVE && user.status !== UserStatus.ACTIVE
+                ? 'Approve Reactivation'
+                : `Set Status: ${modDialog.status.replace(/_/g, ' ')}`}
+            </DialogTitle>
             <DialogDescription>
-              Configure the moderation action. An internal admin note is <strong>required</strong> so other admins understand why this action was taken.
+              {modDialog.status === UserStatus.ACTIVE && user.status !== UserStatus.ACTIVE
+                ? (
+                    <>
+                      Review this activation, confirm the account can return to the platform, and record why you approved it.
+                    </>
+                  )
+                : (
+                    <>
+                      Configure the moderation action. An internal admin note is <strong>required</strong> so other admins understand why this action was taken.
+                    </>
+                  )}
             </DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-4">
+          {modDialog.status === UserStatus.ACTIVE && user.status !== UserStatus.ACTIVE ? (
+            <div className="space-y-4">
+              <div className="rounded-lg border bg-muted/30 p-4">
+                <p className="text-sm font-medium">Activation approval</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  This account is currently <strong>{String(user.status || '').replace(/_/g, ' ')}</strong>.
+                  Approving activation restores normal access immediately.
+                </p>
+              </div>
+
+              <div>
+                <label className="text-xs font-medium">
+                  Activation Note <span className="text-red-500">*</span>
+                  <span className="text-muted-foreground font-normal ml-1">(internal only)</span>
+                </label>
+                <Textarea
+                  value={modForm.internalAdminNote}
+                  onChange={(e) => setModForm({ ...modForm, internalAdminNote: e.target.value })}
+                  placeholder="Why is this user being reactivated? Reference the review, ticket, or approval context."
+                  className="mt-1"
+                  rows={4}
+                />
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-4">
             {/* Reason Code * */}
             <div>
               <label className="text-xs font-medium">Reason Code *</label>
@@ -1691,13 +1745,23 @@ export default function UserDetailPage() {
                 rows={3}
               />
             </div>
-          </div>
+            </div>
+          )}
 
           <DialogFooter>
             <Button variant="outline" onClick={() => { setModDialog({ open: false, status: '' }); setModForm({ reason: '', moderationReasonCode: '', moderationReasonText: '', actionRequired: '', supportMessage: '', isUserVisible: true, expiresAt: '', internalAdminNote: '' }) }}>{t('common.cancel')}</Button>
-            <Button onClick={confirmStatusChange} disabled={modLoading || (modDialog.status !== 'active' && !modForm.internalAdminNote.trim())}>
+            <Button
+              onClick={confirmStatusChange}
+              disabled={
+                modLoading ||
+                (
+                  ((modDialog.status !== 'active') || (modDialog.status === UserStatus.ACTIVE && user.status !== UserStatus.ACTIVE)) &&
+                  !modForm.internalAdminNote.trim()
+                )
+              }
+            >
               {modLoading ? <Loader2 className="h-4 w-4 animate-spin me-1" /> : null}
-              Confirm
+              {modDialog.status === UserStatus.ACTIVE && user.status !== UserStatus.ACTIVE ? 'Approve Activation' : 'Confirm'}
             </Button>
           </DialogFooter>
         </DialogContent>

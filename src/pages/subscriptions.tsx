@@ -32,6 +32,24 @@ import {
   FilterX,
 } from 'lucide-react'
 
+const SUBSCRIPTION_POOL_PAGE_SIZE = 100
+const SUBSCRIPTION_POOL_MAX_PAGES = 12
+
+const normalizeSearchText = (value: unknown) =>
+  typeof value === 'string' ? value.trim().toLowerCase() : ''
+
+const extractSubscriptions = (payload: any): any[] => {
+  if (Array.isArray(payload)) {
+    return payload
+  }
+
+  if (!payload || typeof payload !== 'object') {
+    return []
+  }
+
+  return payload.subscriptions || payload.items || payload.results || payload.rows || payload.data || []
+}
+
 export default function SubscriptionsPage() {
   const { t } = useTranslation()
   const navigate = useNavigate()
@@ -64,18 +82,74 @@ export default function SubscriptionsPage() {
   const fetchSubscriptions = async () => {
     setLoading(true)
     try {
+      const baseQuery = {
+        plan: planFilter === 'all' ? undefined : planFilter,
+        status: statusFilter === 'all' ? undefined : statusFilter,
+        sortBy,
+        sortOrder,
+      }
+      const trimmedSearch = searchQuery.trim()
+
+      if (trimmedSearch) {
+        const firstResponse = await adminApi.getSubscriptions({
+          page: 1,
+          limit: SUBSCRIPTION_POOL_PAGE_SIZE,
+          ...baseQuery,
+        })
+        const firstPageItems = extractSubscriptions(firstResponse.data)
+        const totalRecords = Number(firstResponse.data?.total ?? firstPageItems.length)
+        const totalPages = Math.min(
+          Math.max(1, Math.ceil(totalRecords / SUBSCRIPTION_POOL_PAGE_SIZE)),
+          SUBSCRIPTION_POOL_MAX_PAGES
+        )
+
+        const remainingResponses =
+          totalPages > 1
+            ? await Promise.all(
+                Array.from({ length: totalPages - 1 }, (_, index) =>
+                  adminApi.getSubscriptions({
+                    page: index + 2,
+                    limit: SUBSCRIPTION_POOL_PAGE_SIZE,
+                    ...baseQuery,
+                  })
+                )
+              )
+            : []
+
+        const subscriptionPool = [
+          ...firstPageItems,
+          ...remainingResponses.flatMap((response) => extractSubscriptions(response.data)),
+        ]
+        const filteredSubscriptions = subscriptionPool.filter((subscription) =>
+          matchesSearchQuery(subscription, trimmedSearch)
+        )
+        const startIndex = (page - 1) * limit
+
+        setSubscriptions(filteredSubscriptions.slice(startIndex, startIndex + limit))
+        setTotal(filteredSubscriptions.length)
+        setCounts(buildPlanCounts(subscriptionPool))
+        return
+      }
+
       const { data } = await adminApi.getSubscriptions({
         page,
         limit,
-        plan: planFilter === 'all' ? undefined : planFilter,
-        status: statusFilter === 'all' ? undefined : statusFilter,
-        search: searchQuery.trim() || undefined,
-        sortBy,
-        sortOrder,
+        search: undefined,
+        ...baseQuery,
       })
-      setSubscriptions(data.subscriptions || data || [])
-      setTotal(data.total || 0)
-      if (data.counts) setCounts(data.counts)
+      const items = extractSubscriptions(data)
+      setSubscriptions(items)
+      setTotal(Number(data?.total ?? items.length))
+      if (data?.counts) {
+        setCounts({
+          free: Number(data.counts.free ?? 0),
+          trial: Number(data.counts.trial ?? 0),
+          premium: Number(data.counts.premium ?? 0),
+          gold: Number(data.counts.gold ?? 0),
+        })
+      } else {
+        setCounts(buildPlanCounts(items))
+      }
     } catch (err) {
       console.error(err)
     } finally {
@@ -110,6 +184,43 @@ export default function SubscriptionsPage() {
 
   const resolvePlanCode = (subscription: any) =>
     String(subscription.planEntity?.code || subscription.plan || 'free').toLowerCase()
+
+  const matchesSearchQuery = (subscription: any, query: string) => {
+    const normalizedQuery = normalizeSearchText(query)
+    if (!normalizedQuery) {
+      return true
+    }
+
+    const fields = [
+      subscription.id,
+      subscription.userId,
+      subscription.status,
+      subscription.plan,
+      subscription.planCode,
+      subscription.planEntity?.code,
+      subscription.planEntity?.name,
+      subscription.user?.email,
+      subscription.user?.username,
+      subscription.user?.firstName,
+      subscription.user?.lastName,
+      `${subscription.user?.firstName || ''} ${subscription.user?.lastName || ''}`.trim(),
+      `${subscription.user?.lastName || ''} ${subscription.user?.firstName || ''}`.trim(),
+    ]
+
+    return fields.some((field) => normalizeSearchText(field).includes(normalizedQuery))
+  }
+
+  const buildPlanCounts = (items: any[]) =>
+    items.reduce(
+      (accumulator, subscription) => {
+        const planCode = resolvePlanCode(subscription)
+        if (planCode in accumulator) {
+          accumulator[planCode as keyof typeof accumulator] += 1
+        }
+        return accumulator
+      },
+      { free: 0, trial: 0, premium: 0, gold: 0 }
+    )
 
   const planBadge = (plan: string) => {
     switch (plan.toLowerCase()) {

@@ -727,6 +727,10 @@ export const adminApi = {
           page: params.page,
           limit: params.limit,
           plan: params.plan,
+          status: params.status,
+          search: params.search,
+          sortBy: params.sortBy,
+          sortOrder: params.sortOrder,
         },
       }),
     ])
