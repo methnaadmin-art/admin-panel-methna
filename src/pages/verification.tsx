@@ -500,6 +500,18 @@ export default function VerificationPage() {
   const [previewAsset, setPreviewAsset] = useState<PreviewAsset | null>(null)
   const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(null)
 
+  const extractErrorDetail = (reason: unknown): string => {
+    if (!reason || typeof reason !== 'object') return String(reason ?? 'Unknown error')
+    const err = reason as { response?: { status?: number; data?: unknown }; message?: string }
+    const status = err?.response?.status
+    const data = err?.response?.data
+    const message =
+      typeof data === 'object' && data !== null && 'message' in (data as Record<string, unknown>)
+        ? String((data as Record<string, unknown>).message)
+        : err?.message
+    return status ? `HTTP ${status}${message ? `: ${message}` : ''}` : message || 'Unknown error'
+  }
+
   const refreshVerificationData = async (silent = false) => {
     if (!silent) {
       setLoading({
@@ -516,43 +528,53 @@ export default function VerificationPage() {
     ])
 
     const failedQueues: string[] = []
+    const errorDetails: string[] = []
 
     if (selfieQueueResult.status === 'fulfilled') {
+      const payload = selfieQueueResult.value?.data
       const nextSelfieUsers = uniqueById(
-        extractItems(selfieQueueResult.value.data)
+        extractItems(payload)
           .map(normalizePendingSelfieUser)
           .filter((user): user is PendingVerificationUser => Boolean(user))
       )
       setSelfieUsers(nextSelfieUsers)
     } else {
-      console.error(selfieQueueResult.reason)
+      const detail = extractErrorDetail(selfieQueueResult.reason)
+      console.error('[Verification] Selfie queue failed:', detail, selfieQueueResult.reason)
       failedQueues.push('selfie')
+      errorDetails.push(`selfie: ${detail}`)
       setSelfieUsers([])
     }
 
     if (identityQueueResult.status === 'fulfilled') {
+      const payload = identityQueueResult.value?.data
       const nextIdentityUsers = uniqueById(
-        extractItems(identityQueueResult.value.data)
+        extractItems(payload)
           .map((record) => normalizePendingDocumentUser(record, 'identity'))
           .filter((user): user is PendingDocumentUser => Boolean(user))
       )
       setIdentityUsers(nextIdentityUsers)
     } else {
-      console.error(identityQueueResult.reason)
+      const detail = extractErrorDetail(identityQueueResult.reason)
+      console.error('[Verification] Identity queue failed:', detail, identityQueueResult.reason)
       failedQueues.push('identity')
+      errorDetails.push(`identity: ${detail}`)
       setIdentityUsers([])
     }
 
     if (maritalQueueResult.status === 'fulfilled') {
+      const payload = maritalQueueResult.value?.data
       const nextMaritalUsers = uniqueById(
-        extractItems(maritalQueueResult.value.data)
+        extractItems(payload)
           .map((record) => normalizePendingDocumentUser(record, 'marital_status'))
           .filter((user): user is PendingDocumentUser => Boolean(user))
       )
       setMaritalUsers(nextMaritalUsers)
     } else {
-      console.error(maritalQueueResult.reason)
+      const detail = extractErrorDetail(maritalQueueResult.reason)
+      console.error('[Verification] Marital queue failed:', detail, maritalQueueResult.reason)
       failedQueues.push('marital')
+      errorDetails.push(`marital: ${detail}`)
       setMaritalUsers([])
     }
 
@@ -561,7 +583,7 @@ export default function VerificationPage() {
     } else if (!silent) {
       toast({
         title: t('common.error'),
-        description: `Failed to load ${failedQueues.join(', ')} queue${failedQueues.length > 1 ? 's' : ''}.`,
+        description: `Failed to load ${failedQueues.join(', ')} queue${failedQueues.length > 1 ? 's' : ''}. ${errorDetails.join('; ')}`,
         variant: 'error',
       })
     }
