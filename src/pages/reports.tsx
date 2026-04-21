@@ -36,7 +36,8 @@ const statusBadge = (status: string) => {
 }
 
 const reasonBadge = (reason: string) => {
-  switch (reason) {
+  const normalized = reason.toUpperCase()
+  switch (normalized) {
     case 'FAKE_PROFILE': return <Badge variant="destructive">Fake Profile</Badge>
     case 'HARASSMENT': return <Badge variant="destructive">Harassment</Badge>
     case 'SCAM': return <Badge variant="destructive">Scam</Badge>
@@ -44,6 +45,17 @@ const reasonBadge = (reason: string) => {
     case 'INAPPROPRIATE_CONTENT': return <Badge variant="warning">Inappropriate</Badge>
     default: return <Badge variant="secondary">{reason}</Badge>
   }
+}
+
+const isAutoModeratedChatReport = (report: Report) =>
+  report.reason?.toUpperCase() === 'HARASSMENT' && report.details?.includes('Auto-detected chat moderation case.') === true
+
+const getAutoModerationPreview = (details?: string) => {
+  if (!details) return ''
+  const flaggedLine = details
+    .split('\n')
+    .find((line) => line.startsWith('Flagged words:') || line.startsWith('Blocked content:'))
+  return flaggedLine || ''
 }
 
 export default function ReportsPage() {
@@ -159,7 +171,21 @@ export default function ReportsPage() {
                         <p className="font-medium">{report.reported?.firstName} {report.reported?.lastName}</p>
                         <p className="text-xs text-muted-foreground">{report.reported?.email}</p>
                       </td>
-                      <td className="py-3 pr-4">{reasonBadge(report.reason)}</td>
+                      <td className="py-3 pr-4">
+                        <div className="space-y-1">
+                          <div className="flex flex-wrap items-center gap-2">
+                            {reasonBadge(report.reason)}
+                            {isAutoModeratedChatReport(report) && (
+                              <Badge variant="outline">Auto Chat Moderation</Badge>
+                            )}
+                          </div>
+                          {isAutoModeratedChatReport(report) && (
+                            <p className="text-xs text-muted-foreground">
+                              {getAutoModerationPreview(report.details)}
+                            </p>
+                          )}
+                        </div>
+                      </td>
                       <td className="py-3 pr-4">{statusBadge(report.status)}</td>
                       <td className="py-3 pr-4 text-muted-foreground whitespace-nowrap">
                         {formatDateTime(report.createdAt)}
