@@ -48,7 +48,7 @@ import {
   Area,
 } from 'recharts'
 
-const PIE_COLORS = ['#2D7A4F', '#f59e0b', '#ef4444', '#6b7280', '#8b5cf6']
+const PIE_COLORS = ['#8b5cf6', '#c084fc', '#ef4444', '#6b7280', '#d946ef']
 
 export default function DashboardPage() {
   const { t } = useTranslation()
@@ -281,7 +281,7 @@ export default function DashboardPage() {
                 <XAxis dataKey="name" tick={{ fontSize: 11 }} />
                 <YAxis tick={{ fontSize: 11 }} />
                 <Tooltip />
-                <Bar dataKey="users" fill="#2D7A4F" radius={[6, 6, 0, 0]} />
+                <Bar dataKey="users" fill="#8b5cf6" radius={[6, 6, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
             <div className="mt-3 grid grid-cols-2 gap-3">

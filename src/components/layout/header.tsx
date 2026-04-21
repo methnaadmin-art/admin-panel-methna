@@ -1,11 +1,26 @@
+import { useEffect, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
+import {
+  Bell,
+  ChevronLeft,
+  ChevronRight,
+  Languages,
+  LogOut,
+  Menu,
+  Moon,
+  RefreshCw,
+  Search,
+  Settings,
+  Shield,
+  Sun,
+} from 'lucide-react'
 import { useAuth } from '@/contexts/auth-context'
 import { useTheme } from '@/contexts/theme-context'
+import { adminApi } from '@/lib/api'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -14,21 +29,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import {
-  Search,
-  Bell,
-  RefreshCw,
-  Settings,
-  LogOut,
-  ChevronRight,
-  ChevronLeft,
-  Shield,
-  Moon,
-  Sun,
-  Languages,
-} from 'lucide-react'
-import { useState, useEffect, useRef } from 'react'
-import { adminApi } from '@/lib/api'
+import { Input } from '@/components/ui/input'
 
 const breadcrumbMap: Record<string, string[]> = {
   '/': ['breadcrumb.overview'],
@@ -53,7 +54,11 @@ const breadcrumbMap: Record<string, string[]> = {
   '/guide': ['breadcrumb.guide'],
 }
 
-export function Header() {
+interface HeaderProps {
+  onOpenSidebar?: () => void
+}
+
+export function Header({ onOpenSidebar }: HeaderProps) {
   const { t, i18n } = useTranslation()
   const location = useLocation()
   const navigate = useNavigate()
@@ -125,6 +130,7 @@ export function Header() {
     if (searchTimeoutRef.current) {
       window.clearTimeout(searchTimeoutRef.current)
     }
+
     const query = searchQuery.trim()
     navigate(query ? `/search?q=${encodeURIComponent(query)}` : '/search')
   }
@@ -134,134 +140,145 @@ export function Header() {
   }
 
   const Chevron = isRtl ? ChevronLeft : ChevronRight
+  const mobileBreadcrumb = finalBreadcrumb.length > 0
+    ? t(finalBreadcrumb[finalBreadcrumb.length - 1])
+    : t('app.name')
 
   return (
-    <header className="flex h-14 shrink-0 items-center justify-between border-b bg-background/80 backdrop-blur-sm px-6 gap-4">
-      {/* Left: Breadcrumb */}
-      <div className="flex items-center gap-2 min-w-0">
-        <nav className="flex items-center text-sm">
-          {finalBreadcrumb.map((key, i) => (
-            <span key={i} className="flex items-center">
-              {i > 0 && <Chevron className="h-3 w-3 mx-1.5 text-muted-foreground/50" />}
-              <span className={i === finalBreadcrumb.length - 1 ? 'font-semibold text-foreground' : 'text-muted-foreground'}>
-                {t(key)}
+    <header className="shrink-0 border-b bg-background/80 backdrop-blur-sm">
+      <div className="flex flex-wrap items-center gap-3 px-4 py-3 sm:px-6">
+        <div className="flex min-w-0 flex-1 items-center gap-2">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-9 w-9 lg:hidden"
+            onClick={onOpenSidebar}
+            title={t('nav.dashboard')}
+          >
+            <Menu className="h-4 w-4" />
+          </Button>
+
+          <div className="min-w-0">
+            <nav className="hidden items-center text-sm sm:flex">
+              {finalBreadcrumb.map((key, i) => (
+                <span key={i} className="flex items-center">
+                  {i > 0 && <Chevron className="mx-1.5 h-3 w-3 text-muted-foreground/50" />}
+                  <span className={i === finalBreadcrumb.length - 1 ? 'font-semibold text-foreground' : 'text-muted-foreground'}>
+                    {t(key)}
+                  </span>
+                </span>
+              ))}
+            </nav>
+            <p className="truncate text-sm font-semibold sm:hidden">{mobileBreadcrumb}</p>
+          </div>
+        </div>
+
+        <form onSubmit={handleSearch} className="order-3 relative w-full md:order-none md:max-w-sm md:flex-1">
+          <Search className={`absolute ${isRtl ? 'right-3' : 'left-3'} top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground`} />
+          <Input
+            placeholder={t('header.searchPlaceholder')}
+            value={searchQuery}
+            onChange={(e) => {
+              const nextValue = e.target.value
+              setSearchQuery(nextValue)
+              queueSearchNavigation(nextValue)
+            }}
+            className={`${isRtl ? 'pr-9' : 'pl-9'} h-10 border-0 bg-muted/60 focus-visible:ring-1`}
+          />
+        </form>
+
+        <div className="ml-auto flex items-center gap-1 shrink-0">
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="icon" className="h-9 w-9 text-muted-foreground" title={t('header.language')}>
+                <Languages className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onClick={() => switchLanguage('en')} className={i18n.language === 'en' ? 'bg-accent' : ''}>
+                {t('header.english')}
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => switchLanguage('ar')} className={i18n.language === 'ar' ? 'bg-accent' : ''}>
+                {t('header.arabic')}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-9 w-9 text-muted-foreground"
+            onClick={toggleTheme}
+            title={theme === 'dark' ? t('header.lightMode') : t('header.darkMode')}
+          >
+            {theme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+          </Button>
+
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-9 w-9 text-muted-foreground"
+            onClick={() => window.location.reload()}
+            title={t('header.refresh')}
+          >
+            <RefreshCw className="h-4 w-4" />
+          </Button>
+
+          <Button
+            variant="ghost"
+            size="icon"
+            className="relative h-9 w-9 text-muted-foreground"
+            onClick={() => navigate('/reports')}
+            title={t('header.pendingItems')}
+          >
+            <Bell className="h-4 w-4" />
+            {pendingCount > 0 && (
+              <span className="absolute -top-0.5 -right-0.5 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-red-500 px-1 text-[9px] font-bold text-white">
+                {pendingCount > 99 ? '99+' : pendingCount}
               </span>
-            </span>
-          ))}
-        </nav>
-      </div>
+            )}
+          </Button>
 
-      {/* Center: Search */}
-      <form onSubmit={handleSearch} className="hidden md:flex relative max-w-sm flex-1">
-        <Search className={`absolute ${isRtl ? 'right-3' : 'left-3'} top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground`} />
-        <Input
-          placeholder={t('header.searchPlaceholder')}
-          value={searchQuery}
-          onChange={(e) => {
-            const nextValue = e.target.value
-            setSearchQuery(nextValue)
-            queueSearchNavigation(nextValue)
-          }}
-          className={`${isRtl ? 'pr-9' : 'pl-9'} h-9 bg-muted/50 border-0 focus-visible:ring-1`}
-        />
-      </form>
-
-      {/* Right: Actions */}
-      <div className="flex items-center gap-1 shrink-0">
-        {/* Language Switcher */}
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon" className="h-9 w-9 text-muted-foreground" title={t('header.language')}>
-              <Languages className="h-4 w-4" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuItem onClick={() => switchLanguage('en')} className={i18n.language === 'en' ? 'bg-accent' : ''}>
-              🇬🇧 {t('header.english')}
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => switchLanguage('ar')} className={i18n.language === 'ar' ? 'bg-accent' : ''}>
-              🇸🇦 {t('header.arabic')}
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-
-        {/* Dark Mode Toggle */}
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-9 w-9 text-muted-foreground"
-          onClick={toggleTheme}
-          title={theme === 'dark' ? t('header.lightMode') : t('header.darkMode')}
-        >
-          {theme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
-        </Button>
-
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-9 w-9 text-muted-foreground"
-          onClick={() => window.location.reload()}
-          title={t('header.refresh')}
-        >
-          <RefreshCw className="h-4 w-4" />
-        </Button>
-
-        {/* Notification Bell */}
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-9 w-9 text-muted-foreground relative"
-          onClick={() => navigate('/reports')}
-          title={t('header.pendingItems')}
-        >
-          <Bell className="h-4 w-4" />
-          {pendingCount > 0 && (
-            <span className="absolute -top-0.5 -right-0.5 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-red-500 px-1 text-[9px] font-bold text-white">
-              {pendingCount > 99 ? '99+' : pendingCount}
-            </span>
-          )}
-        </Button>
-
-        {/* User Dropdown */}
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <button className="flex items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-muted transition-colors">
-              <Avatar className="h-7 w-7">
-                <AvatarFallback className="bg-primary text-primary-foreground text-[10px] font-bold">
-                  {user?.firstName?.[0]}{user?.lastName?.[0]}
-                </AvatarFallback>
-              </Avatar>
-              <div className="hidden md:flex flex-col items-start">
-                <span className="text-xs font-semibold leading-none">{user?.firstName} {user?.lastName}</span>
-                <Badge variant="outline" className="mt-0.5 h-4 px-1.5 text-[9px] font-medium">
-                  {user?.role?.toUpperCase()}
-                </Badge>
-              </div>
-            </button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-56">
-            <DropdownMenuLabel className="font-normal">
-              <div className="flex flex-col space-y-1">
-                <p className="text-sm font-medium">{user?.firstName} {user?.lastName}</p>
-                <p className="text-xs text-muted-foreground">{user?.email}</p>
-              </div>
-            </DropdownMenuLabel>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={() => navigate('/security')}>
-              <Settings className="me-2 h-4 w-4" /> {t('header.settings')}
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => navigate('/audit-logs')}>
-              <Shield className="me-2 h-4 w-4" /> {t('nav.auditLogs')}
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => navigate('/guide')}>
-              <Languages className="me-2 h-4 w-4" /> {t('nav.guide')}
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={logout} className="text-red-600 focus:text-red-600">
-              <LogOut className="me-2 h-4 w-4" /> {t('app.signOut')}
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button className="flex items-center gap-2 rounded-lg px-2 py-1.5 transition-colors hover:bg-muted">
+                <Avatar className="h-7 w-7">
+                  <AvatarFallback className="bg-primary text-primary-foreground text-[10px] font-bold">
+                    {user?.firstName?.[0]}{user?.lastName?.[0]}
+                  </AvatarFallback>
+                </Avatar>
+                <div className="hidden md:flex flex-col items-start">
+                  <span className="text-xs font-semibold leading-none">{user?.firstName} {user?.lastName}</span>
+                  <Badge variant="outline" className="mt-0.5 h-4 px-1.5 text-[9px] font-medium">
+                    {user?.role?.toUpperCase()}
+                  </Badge>
+                </div>
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-56">
+              <DropdownMenuLabel className="font-normal">
+                <div className="flex flex-col space-y-1">
+                  <p className="text-sm font-medium">{user?.firstName} {user?.lastName}</p>
+                  <p className="text-xs text-muted-foreground">{user?.email}</p>
+                </div>
+              </DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => navigate('/security')}>
+                <Settings className="me-2 h-4 w-4" /> {t('header.settings')}
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => navigate('/audit-logs')}>
+                <Shield className="me-2 h-4 w-4" /> {t('nav.auditLogs')}
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => navigate('/guide')}>
+                <Languages className="me-2 h-4 w-4" /> {t('nav.guide')}
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={logout} className="text-red-600 focus:text-red-600">
+                <LogOut className="me-2 h-4 w-4" /> {t('app.signOut')}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
       </div>
     </header>
   )

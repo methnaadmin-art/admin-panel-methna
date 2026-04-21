@@ -17,6 +17,10 @@ import {
 } from 'recharts'
 import type { DashboardStats } from '@/types'
 
+const CHART_PRIMARY = '#8b5cf6'
+const CHART_SECONDARY = '#a855f7'
+const CHART_GRID = '#ede9fe'
+
 type AnalyticsRecord = Record<string, any>
 
 interface AnalyticsDashboardView {
@@ -190,6 +194,7 @@ const normalizeDau = (payload: unknown, dashboard: AnalyticsDashboardView) => {
 
 export default function AnalyticsPage() {
   const { t } = useTranslation()
+  const [statsSnapshot, setStatsSnapshot] = useState<DashboardStats | null>(null)
   const [dashboard, setDashboard] = useState<AnalyticsDashboardView | null>(null)
   const [matchesData, setMatchesData] = useState<Array<{ date: string; count: number }>>([])
   const [conversion, setConversion] = useState<ConversionView | null>(null)
@@ -213,6 +218,8 @@ export default function AnalyticsPage() {
           statsRes.status === 'fulfilled' && isRecord(statsRes.value.data)
             ? (statsRes.value.data as DashboardStats)
             : null
+
+        setStatsSnapshot(statsPayload)
 
         const dashboardView = normalizeDashboard(
           dashRes.status === 'fulfilled' ? dashRes.value.data : null,
@@ -254,6 +261,31 @@ export default function AnalyticsPage() {
     load()
   }, [])
 
+  const activitySnapshotData = [
+    { label: t('dashboard.totalUsers'), value: dashboard?.totalUsers ?? statsSnapshot?.users.total ?? 0 },
+    { label: t('dashboard.dau'), value: dau ?? dashboard?.dailyActiveUsers ?? 0 },
+    { label: t('dashboard.totalMatches'), value: dashboard?.totalMatches ?? statsSnapshot?.content.totalMatches ?? 0 },
+    { label: t('dashboard.totalMessages'), value: dashboard?.totalMessages ?? statsSnapshot?.content.totalMessages ?? 0 },
+    { label: t('dashboard.premiumUsers'), value: dashboard?.premiumUsers ?? statsSnapshot?.revenue.premiumUsers ?? 0 },
+  ].filter((item) => item.value > 0)
+
+  const userStatusOverview = [
+    { label: t('users.active'), value: statsSnapshot?.users.active ?? 0 },
+    { label: 'Pending', value: statsSnapshot?.users.pendingVerification ?? 0 },
+    { label: t('users.suspended'), value: statsSnapshot?.users.suspended ?? 0 },
+    { label: t('users.banned'), value: statsSnapshot?.users.banned ?? 0 },
+  ].filter((item) => item.value > 0)
+
+  const platformOverview =
+    userStatusOverview.length > 0
+      ? userStatusOverview
+      : [
+          { label: t('dashboard.totalUsers'), value: dashboard?.totalUsers ?? statsSnapshot?.users.total ?? 0 },
+          { label: t('dashboard.totalMatches'), value: dashboard?.totalMatches ?? statsSnapshot?.content.totalMatches ?? 0 },
+          { label: t('dashboard.totalMessages'), value: dashboard?.totalMessages ?? statsSnapshot?.content.totalMessages ?? 0 },
+          { label: t('dashboard.premiumUsers'), value: dashboard?.premiumUsers ?? statsSnapshot?.revenue.premiumUsers ?? 0 },
+        ].filter((item) => item.value > 0)
+
   if (loading) {
     return (
       <div className="flex h-64 items-center justify-center">
@@ -263,25 +295,30 @@ export default function AnalyticsPage() {
   }
 
   const hasDashboardMetrics = Boolean(
-    dashboard && [
-      dashboard.totalUsers,
-      dashboard.totalMatches,
-      dashboard.totalMessages,
-      dashboard.premiumUsers,
-      dashboard.dailyActiveUsers,
-      dashboard.matchesToday,
+    [
+      dashboard?.totalUsers ?? statsSnapshot?.users.total,
+      dashboard?.totalMatches ?? statsSnapshot?.content.totalMatches,
+      dashboard?.totalMessages ?? statsSnapshot?.content.totalMessages,
+      dashboard?.premiumUsers ?? statsSnapshot?.revenue.premiumUsers,
+      dashboard?.dailyActiveUsers ?? dau,
+      dashboard?.matchesToday,
     ].some((value) => value !== undefined)
   )
 
-  if (!hasDashboardMetrics && matchesData.length === 0) {
+  if (!hasDashboardMetrics && matchesData.length === 0 && activitySnapshotData.length === 0 && platformOverview.length === 0) {
     return <div className="text-center text-muted-foreground">{t('common.noData')}</div>
   }
+
+  const showMatchesTimeline = matchesData.length > 0
 
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold">{t('analytics.title')}</h1>
-        <p className="text-muted-foreground">{t('analytics.subtitle')}</p>
+        <p className="text-muted-foreground">
+          {t('analytics.subtitle')}
+          {statsSnapshot && ' Live backend totals are used automatically when analytics endpoints return partial data.'}
+        </p>
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -295,46 +332,58 @@ export default function AnalyticsPage() {
           value={formatPercent(conversion?.conversionRate ?? dashboard?.conversionRate)}
           subtitle={t('analytics.likesToMatches')}
           icon={TrendingUp}
-          iconColor="text-blue-500"
+          iconColor="text-violet-500"
         />
         <StatsCard
           title={t('dashboard.retention')}
           value={formatPercent(retention?.retentionRate ?? dashboard?.retentionRate)}
           subtitle={t('analytics.sevenDayCohort')}
           icon={Repeat}
-          iconColor="text-amber-500"
+          iconColor="text-fuchsia-500"
         />
         <StatsCard
           title={t('analytics.matchesToday')}
           value={dashboard?.matchesToday ?? '-'}
           icon={Heart}
-          iconColor="text-pink-500"
+          iconColor="text-purple-500"
         />
       </div>
 
       <div className="grid gap-6 lg:grid-cols-2">
         <Card>
           <CardHeader>
-            <CardTitle className="text-lg">{t('dashboard.matchesOverTime')}</CardTitle>
+            <CardTitle className="text-lg">
+              {showMatchesTimeline ? t('dashboard.matchesOverTime') : 'Live activity snapshot'}
+            </CardTitle>
           </CardHeader>
           <CardContent>
-            {matchesData.length > 0 ? (
+            {showMatchesTimeline ? (
               <ResponsiveContainer width="100%" height={300}>
                 <AreaChart data={matchesData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                  <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID} />
                   <XAxis dataKey="date" tick={{ fontSize: 11 }} />
                   <YAxis />
                   <Tooltip />
                   <Area
                     type="monotone"
                     dataKey="count"
-                    stroke="#2D7A4F"
-                    fill="#2D7A4F"
+                    stroke={CHART_PRIMARY}
+                    fill={CHART_PRIMARY}
                     fillOpacity={0.15}
                     strokeWidth={2}
                     name="Matches"
                   />
                 </AreaChart>
+              </ResponsiveContainer>
+            ) : activitySnapshotData.length > 0 ? (
+              <ResponsiveContainer width="100%" height={300}>
+                <BarChart data={activitySnapshotData}>
+                  <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID} />
+                  <XAxis dataKey="label" tick={{ fontSize: 11 }} interval={0} angle={-15} textAnchor="end" height={56} />
+                  <YAxis />
+                  <Tooltip />
+                  <Bar dataKey="value" fill={CHART_PRIMARY} radius={[8, 8, 0, 0]} />
+                </BarChart>
               </ResponsiveContainer>
             ) : (
               <p className="py-12 text-center text-muted-foreground">{t('common.noData')}</p>
@@ -347,21 +396,14 @@ export default function AnalyticsPage() {
             <CardTitle className="text-lg">{t('analytics.platformOverview')}</CardTitle>
           </CardHeader>
           <CardContent>
-            {hasDashboardMetrics ? (
+            {platformOverview.length > 0 ? (
               <ResponsiveContainer width="100%" height={300}>
-                <BarChart
-                  data={[
-                    { name: 'Users', value: dashboard?.totalUsers || 0 },
-                    { name: 'Matches', value: dashboard?.totalMatches || 0 },
-                    { name: 'Messages', value: dashboard?.totalMessages || 0 },
-                    { name: 'Premium', value: dashboard?.premiumUsers || 0 },
-                  ]}
-                >
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                  <XAxis dataKey="name" />
+                <BarChart data={platformOverview}>
+                  <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID} />
+                  <XAxis dataKey="label" tick={{ fontSize: 11 }} interval={0} angle={-12} textAnchor="end" height={54} />
                   <YAxis />
                   <Tooltip />
-                  <Bar dataKey="value" fill="#2D7A4F" radius={[8, 8, 0, 0]} />
+                  <Bar dataKey="value" fill={CHART_SECONDARY} radius={[8, 8, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             ) : (
@@ -377,7 +419,7 @@ export default function AnalyticsPage() {
             <CardTitle className="text-lg">{t('analytics.likeToMatchConversion')}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid gap-4 sm:grid-cols-3">
               <div className="rounded-lg border p-3 text-center">
                 <p className="text-2xl font-bold">{conversion?.totalLikes ?? '-'}</p>
                 <p className="text-xs text-muted-foreground">{t('dashboard.totalLikes')}</p>
@@ -401,7 +443,7 @@ export default function AnalyticsPage() {
             <CardTitle className="text-lg">{t('analytics.userRetention')}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid gap-4 sm:grid-cols-3">
               <div className="rounded-lg border p-3 text-center">
                 <p className="text-2xl font-bold">{retention?.cohortSize ?? '-'}</p>
                 <p className="text-xs text-muted-foreground">{t('analytics.cohortSize')}</p>
