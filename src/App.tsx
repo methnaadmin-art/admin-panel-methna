@@ -34,6 +34,7 @@ const CategoriesPage = lazy(() => import('@/pages/categories'))
 const DailyInsightsPage = lazy(() => import('@/pages/daily-insights'))
 const ContentManagementPage = lazy(() => import('@/pages/content'))
 const ConsumablesPage = lazy(() => import('@/pages/consumables'))
+const AppUpdatesPage = lazy(() => import('@/pages/app-updates'))
 
 function RouteFallback() {
   return (
@@ -80,6 +81,7 @@ export default function App() {
                   <Route path="/guide" element={<GuidePage />} />
                   <Route path="/content" element={<ContentManagementPage />} />
                   <Route path="/consumables" element={<ConsumablesPage />} />
+                  <Route path="/app-updates" element={<AppUpdatesPage />} />
                 </Route>
               </Routes>
             </Suspense>

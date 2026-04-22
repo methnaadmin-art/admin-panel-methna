@@ -1618,6 +1618,7 @@ export default function UsersPage() {
                   <SelectContent>
                     <SelectItem value="user">{t('users.user')}</SelectItem>
                     <SelectItem value="admin">{t('users.admin')}</SelectItem>
+                    <SelectItem value="staff">Staff</SelectItem>
                     <SelectItem value="moderator">{t('users.moderator')}</SelectItem>
                   </SelectContent>
                 </Select>

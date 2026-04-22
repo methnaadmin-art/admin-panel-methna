@@ -182,6 +182,20 @@ export interface AdminNotificationsQueryParams {
   sortOrder?: SortOrder
 }
 
+export interface AdminAppUpdatePolicy {
+  id?: string
+  isActive: boolean
+  minimumSupportedVersion?: string | null
+  latestVersion?: string | null
+  title?: string | null
+  hardUpdateMessage?: string | null
+  softUpdateMessage?: string | null
+  storeUrlAndroid?: string | null
+  storeUrliOS?: string | null
+  updatedAt?: string
+  updatedById?: string | null
+}
+
 export interface AdminTicketsQueryParams {
   page?: number
   limit?: number
@@ -360,6 +374,11 @@ const sanitizeAdminVerificationParams = (
 export const adminApi = {
   // Dashboard
   getStats: () => api.get('/admin/stats'),
+
+  // App update policy
+  getAppUpdatePolicy: () => api.get<AdminAppUpdatePolicy>('/admin/app-update-policy'),
+  updateAppUpdatePolicy: (data: Partial<AdminAppUpdatePolicy>) =>
+    api.patch<AdminAppUpdatePolicy>('/admin/app-update-policy', data),
 
   // Users
   getUsers: (

@@ -20,17 +20,18 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import type { Report, ReportStatus } from '@/types'
+import type { Report } from '@/types'
 import { formatDateTime } from '@/lib/utils'
 import { useToast } from '@/components/ui/toast'
 import { ChevronLeft, ChevronRight, Loader2, CheckCircle, XCircle, Eye } from 'lucide-react'
 
 const statusBadge = (status: string) => {
-  switch (status) {
-    case 'PENDING': return <Badge variant="warning">Pending</Badge>
-    case 'REVIEWED': return <Badge variant="info">Reviewed</Badge>
-    case 'RESOLVED': return <Badge variant="success">Resolved</Badge>
-    case 'DISMISSED': return <Badge variant="secondary">Dismissed</Badge>
+  const normalized = status.toLowerCase()
+  switch (normalized) {
+    case 'pending': return <Badge variant="warning">Pending</Badge>
+    case 'reviewed': return <Badge variant="info">Reviewed</Badge>
+    case 'resolved': return <Badge variant="success">Resolved</Badge>
+    case 'dismissed': return <Badge variant="secondary">Dismissed</Badge>
     default: return <Badge>{status}</Badge>
   }
 }
@@ -71,7 +72,7 @@ export default function ReportsPage() {
   const [resolveDialog, setResolveDialog] = useState<{ open: boolean; report: Report | null }>({
     open: false, report: null,
   })
-  const [resolveStatus, setResolveStatus] = useState('RESOLVED')
+  const [resolveStatus, setResolveStatus] = useState('resolved')
   const [moderatorNote, setModeratorNote] = useState('')
 
   const fetchReports = async () => {
@@ -98,9 +99,9 @@ export default function ReportsPage() {
     try {
       await adminApi.resolveReport(resolveDialog.report.id, resolveStatus, moderatorNote || undefined)
       toast({
-        title: resolveStatus === 'RESOLVED' ? t('reports.resolved') : t('reports.dismissed'),
+        title: resolveStatus === 'resolved' ? t('reports.resolved') : t('reports.dismissed'),
         description: `${resolveDialog.report.reported?.firstName || 'User'} report - ${resolveStatus.toLowerCase()}`,
-        variant: resolveStatus === 'RESOLVED' ? 'success' : 'warning',
+        variant: resolveStatus === 'resolved' ? 'success' : 'warning',
       })
       setResolveDialog({ open: false, report: null })
       setModeratorNote('')
@@ -129,10 +130,10 @@ export default function ReportsPage() {
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">{t('reports.allReports')}</SelectItem>
-            <SelectItem value="PENDING">{t('reports.pending')}</SelectItem>
-            <SelectItem value="REVIEWED">{t('reports.reviewed')}</SelectItem>
-            <SelectItem value="RESOLVED">{t('reports.resolved')}</SelectItem>
-            <SelectItem value="DISMISSED">{t('reports.dismissed')}</SelectItem>
+            <SelectItem value="pending">{t('reports.pending')}</SelectItem>
+            <SelectItem value="reviewed">{t('reports.reviewed')}</SelectItem>
+            <SelectItem value="resolved">{t('reports.resolved')}</SelectItem>
+            <SelectItem value="dismissed">{t('reports.dismissed')}</SelectItem>
           </SelectContent>
         </Select>
         <span className="text-sm text-muted-foreground">{total} {t('nav.reports')}</span>
@@ -191,7 +192,7 @@ export default function ReportsPage() {
                         {formatDateTime(report.createdAt)}
                       </td>
                       <td className="py-3 text-right">
-                        {report.status === 'PENDING' ? (
+                        {report.status.toLowerCase() === 'pending' ? (
                           <div className="flex items-center justify-end gap-1">
                             <Button
                               size="sm"
@@ -199,7 +200,7 @@ export default function ReportsPage() {
                               className="gap-1 text-emerald-600"
                               onClick={() => {
                                 setResolveDialog({ open: true, report })
-                                setResolveStatus('RESOLVED')
+                                setResolveStatus('resolved')
                               }}
                             >
                               <CheckCircle className="h-3.5 w-3.5" /> {t('reports.resolve')}
@@ -210,7 +211,7 @@ export default function ReportsPage() {
                               className="gap-1"
                               onClick={() => {
                                 setResolveDialog({ open: true, report })
-                                setResolveStatus('DISMISSED')
+                                setResolveStatus('dismissed')
                               }}
                             >
                               <XCircle className="h-3.5 w-3.5" /> {t('reports.dismiss')}
@@ -272,9 +273,9 @@ export default function ReportsPage() {
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="RESOLVED">{t('reports.resolved')}</SelectItem>
-              <SelectItem value="DISMISSED">{t('reports.dismissed')}</SelectItem>
-              <SelectItem value="REVIEWED">{t('reports.reviewed')}</SelectItem>
+              <SelectItem value="resolved">{t('reports.resolved')}</SelectItem>
+              <SelectItem value="dismissed">{t('reports.dismissed')}</SelectItem>
+              <SelectItem value="reviewed">{t('reports.reviewed')}</SelectItem>
             </SelectContent>
           </Select>
           <Textarea

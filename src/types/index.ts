@@ -33,10 +33,10 @@ export enum ReportReason {
 }
 
 export enum ReportStatus {
-  PENDING = 'PENDING',
-  REVIEWED = 'REVIEWED',
-  RESOLVED = 'RESOLVED',
-  DISMISSED = 'DISMISSED',
+  PENDING = 'pending',
+  REVIEWED = 'reviewed',
+  RESOLVED = 'resolved',
+  DISMISSED = 'dismissed',
 }
 
 export enum PhotoModerationStatus {

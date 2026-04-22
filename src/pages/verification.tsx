@@ -5,6 +5,7 @@ import { adminApi } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
+import { Input } from '@/components/ui/input'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import {
@@ -488,6 +489,8 @@ export default function VerificationPage() {
 
   const [tab, setTab] = useState<VerificationTab>('selfie')
   const [statusFilter, setStatusFilter] = useState<VerificationDecision>('pending')
+  const [searchFilter, setSearchFilter] = useState('')
+  const [userStatusFilter, setUserStatusFilter] = useState<UserStatus | 'all'>('all')
   const [selfieUsers, setSelfieUsers] = useState<PendingVerificationUser[]>([])
   const [identityUsers, setIdentityUsers] = useState<PendingDocumentUser[]>([])
   const [maritalUsers, setMaritalUsers] = useState<PendingDocumentUser[]>([])
@@ -521,10 +524,18 @@ export default function VerificationPage() {
       })
     }
 
+    const commonParams = {
+      page: 1,
+      limit: VERIFICATION_QUEUE_LIMIT,
+      status: statusFilter,
+      search: searchFilter.trim() || undefined,
+      userStatus: userStatusFilter === 'all' ? undefined : userStatusFilter,
+    }
+
     const [selfieQueueResult, identityQueueResult, maritalQueueResult] = await Promise.allSettled([
-      adminApi.getVerifications({ page: 1, limit: VERIFICATION_QUEUE_LIMIT, status: statusFilter, type: 'selfie' }),
-      adminApi.getVerifications({ page: 1, limit: VERIFICATION_QUEUE_LIMIT, status: statusFilter, type: 'identity' }),
-      adminApi.getVerifications({ page: 1, limit: VERIFICATION_QUEUE_LIMIT, status: statusFilter, type: 'marital_status' }),
+      adminApi.getVerifications({ ...commonParams, type: 'selfie' }),
+      adminApi.getVerifications({ ...commonParams, type: 'identity' }),
+      adminApi.getVerifications({ ...commonParams, type: 'marital_status' }),
     ])
 
     const failedQueues: string[] = []
@@ -603,7 +614,7 @@ export default function VerificationPage() {
     }, REFRESH_INTERVAL_MS)
 
     return () => window.clearInterval(refreshId)
-  }, [statusFilter])
+  }, [statusFilter, searchFilter, userStatusFilter])
 
   const applySelfieDecision = (userId: string, approved: boolean) => {
     setSelfieUsers((currentUsers) =>
@@ -1022,6 +1033,12 @@ export default function VerificationPage() {
         </div>
 
         <div className="flex items-center gap-2">
+          <Input
+            className="w-64"
+            value={searchFilter}
+            onChange={(event) => setSearchFilter(event.target.value)}
+            placeholder="Search name, email, or user ID"
+          />
           <select
             className="rounded-md border px-3 py-1.5 text-sm"
             value={statusFilter}
@@ -1030,6 +1047,18 @@ export default function VerificationPage() {
             <option value="pending">Pending</option>
             <option value="approved">Approved</option>
             <option value="rejected">Rejected</option>
+          </select>
+          <select
+            className="rounded-md border px-3 py-1.5 text-sm"
+            value={userStatusFilter}
+            onChange={(event) => setUserStatusFilter(event.target.value as UserStatus | 'all')}
+          >
+            <option value="all">All user statuses</option>
+            <option value="active">Active</option>
+            <option value="pending_verification">Pending Verification</option>
+            <option value="rejected">Rejected</option>
+            <option value="suspended">Suspended</option>
+            <option value="banned">Banned</option>
           </select>
           <Badge variant="secondary">
             {lastSyncedAt ? `Last synced ${new Date(lastSyncedAt).toLocaleTimeString()}` : 'Syncing...'}

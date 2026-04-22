@@ -19,7 +19,7 @@ const isAdminUser = (value: unknown) => {
   }
 
   const role = (value as { role?: unknown }).role
-  return typeof role === 'string' && role.toLowerCase() === 'admin'
+  return typeof role === 'string' && ['admin', 'moderator', 'staff'].includes(role.toLowerCase())
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -63,7 +63,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
 
     if (!isAdminUser(userData)) {
-      throw new Error('Access denied. Admin role required.')
+      throw new Error('Access denied. Admin or staff role required.')
     }
 
     localStorage.setItem('access_token', accessToken)

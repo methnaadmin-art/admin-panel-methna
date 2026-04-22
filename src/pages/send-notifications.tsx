@@ -1,6 +1,7 @@
-import { useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { adminApi } from '@/lib/api'
+import { fetchAdminUserPool } from '@/lib/admin-user-search'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -18,6 +19,9 @@ export default function SendNotificationsPage() {
   const { t } = useTranslation()
   const [mode, setMode] = useState<'single' | 'broadcast'>('single')
   const [userId, setUserId] = useState('')
+  const [userSearch, setUserSearch] = useState('')
+  const [userCandidates, setUserCandidates] = useState<Array<Record<string, any>>>([])
+  const [userSearchLoading, setUserSearchLoading] = useState(false)
   const [title, setTitle] = useState('')
   const [body, setBody] = useState('')
   const [type, setType] = useState('system')
@@ -37,6 +41,68 @@ export default function SendNotificationsPage() {
   })
   const [previewCount, setPreviewCount] = useState<number | null>(null)
   const [previewLoading, setPreviewLoading] = useState(false)
+
+  useEffect(() => {
+    if (mode !== 'single') {
+      return
+    }
+
+    let cancelled = false
+    setUserSearchLoading(true)
+    fetchAdminUserPool({})
+      .then((users) => {
+        if (!cancelled) {
+          setUserCandidates(users)
+        }
+      })
+      .catch((error) => {
+        console.error('[SendNotifications] Failed to load admin user candidates', error)
+        if (!cancelled) {
+          setUserCandidates([])
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setUserSearchLoading(false)
+        }
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [mode])
+
+  const filteredUserCandidates = useMemo(() => {
+    const query = userSearch.trim().toLowerCase()
+    if (!query) {
+      return userCandidates.slice(0, 8)
+    }
+
+    return userCandidates
+      .filter((candidate) => {
+        const fullName = `${candidate.firstName || ''} ${candidate.lastName || ''}`.trim()
+        return [
+          candidate.id,
+          candidate.email,
+          candidate.username,
+          candidate.phone,
+          candidate.firstName,
+          candidate.lastName,
+          fullName,
+        ].some((value) => typeof value === 'string' && value.toLowerCase().includes(query))
+      })
+      .slice(0, 8)
+  }, [userCandidates, userSearch])
+
+  const selectedCandidate = useMemo(
+    () => userCandidates.find((candidate) => candidate.id === userId),
+    [userCandidates, userId],
+  )
+
+  const candidateLabel = (candidate: Record<string, any>) => {
+    const fullName = `${candidate.firstName || ''} ${candidate.lastName || ''}`.trim()
+    return fullName || candidate.email || candidate.username || candidate.id
+  }
 
   const handlePreview = async () => {
     setPreviewLoading(true)
@@ -108,6 +174,7 @@ export default function SendNotificationsPage() {
       setTitle('')
       setBody('')
       setUserId('')
+      setUserSearch('')
       setPreviewCount(null)
     } catch (err: any) {
       setResult({
@@ -315,14 +382,51 @@ export default function SendNotificationsPage() {
         </CardHeader>
         <CardContent className="space-y-4">
           {mode === 'single' && (
-            <div>
-              <label className="text-sm font-medium">{t('sendNotifications.userId')} *</label>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Recipient *</label>
+              <Input
+                value={userSearch}
+                onChange={(e) => setUserSearch(e.target.value)}
+                placeholder="Search by name, email, username, phone, or user ID"
+              />
               <Input
                 value={userId}
                 onChange={(e) => setUserId(e.target.value)}
                 placeholder={t('sendNotifications.userIdPlaceholder')}
-                className="mt-1"
               />
+              {selectedCandidate && (
+                <div className="rounded-lg border border-primary/20 bg-primary/5 px-3 py-2 text-sm">
+                  Selected: <span className="font-medium">{candidateLabel(selectedCandidate)}</span>
+                  <span className="ml-2 text-xs text-muted-foreground">{selectedCandidate.email}</span>
+                </div>
+              )}
+              <div className="rounded-lg border bg-muted/30">
+                {userSearchLoading ? (
+                  <div className="flex items-center gap-2 px-3 py-3 text-sm text-muted-foreground">
+                    <Loader2 className="h-4 w-4 animate-spin" /> Loading users...
+                  </div>
+                ) : filteredUserCandidates.length > 0 ? (
+                  filteredUserCandidates.map((candidate) => (
+                    <button
+                      key={candidate.id}
+                      type="button"
+                      className="flex w-full items-center justify-between gap-3 border-b px-3 py-2 text-left text-sm last:border-b-0 hover:bg-background"
+                      onClick={() => {
+                        setUserId(candidate.id)
+                        setUserSearch(candidateLabel(candidate))
+                      }}
+                    >
+                      <span>
+                        <span className="font-medium">{candidateLabel(candidate)}</span>
+                        <span className="ml-2 text-xs text-muted-foreground">{candidate.email}</span>
+                      </span>
+                      <span className="text-[10px] text-muted-foreground">{candidate.id}</span>
+                    </button>
+                  ))
+                ) : (
+                  <p className="px-3 py-3 text-sm text-muted-foreground">No users found. You can still paste a user ID manually.</p>
+                )}
+              </div>
             </div>
           )}
 

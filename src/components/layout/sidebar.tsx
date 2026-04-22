@@ -36,6 +36,7 @@ import {
   ScrollText,
   BookOpen,
   Sparkles,
+  Smartphone,
   ShoppingCart,
   X,
   type LucideIcon,
@@ -103,6 +104,7 @@ const navSections: NavSection[] = [
     items: [
       { to: '/notifications', labelKey: 'nav.notifications', icon: Bell },
       { to: '/send-notifications', labelKey: 'nav.sendPush', icon: Send },
+      { to: '/app-updates', labelKey: 'App Updates', icon: Smartphone },
       { to: '/support', labelKey: 'nav.supportTickets', icon: Headphones },
       { to: '/daily-insights', labelKey: 'nav.dailyInsights', icon: Sparkles },
     ],
