@@ -5,8 +5,10 @@ type AdminUserRecord = Record<string, any>
 const ADMIN_USER_POOL_PAGE_SIZE = 100
 const ADMIN_USER_POOL_MAX_PAGES = 25
 const ADMIN_USER_POOL_CACHE_TTL_MS = 30_000
+const ADMIN_USER_SEARCH_CACHE_TTL_MS = 15_000
 
 const adminUserPoolCache = new Map<string, { expiresAt: number; users: AdminUserRecord[] }>()
+const adminUserSearchCache = new Map<string, { expiresAt: number; users: AdminUserRecord[] }>()
 
 const isRecord = (value: unknown): value is AdminUserRecord =>
   typeof value === 'object' && value !== null
@@ -70,6 +72,40 @@ const buildCacheKey = (status?: string, role?: string, plan?: string) =>
 
 export const invalidateAdminUserPoolCache = () => {
   adminUserPoolCache.clear()
+  adminUserSearchCache.clear()
+}
+
+export const searchAdminUsers = async ({
+  query,
+  limit = 8,
+}: {
+  query: string
+  limit?: number
+}) => {
+  const trimmedQuery = query.trim()
+  if (!trimmedQuery) {
+    return []
+  }
+
+  const cacheKey = JSON.stringify({
+    query: trimmedQuery.toLowerCase(),
+    limit,
+  })
+  const cachedEntry = adminUserSearchCache.get(cacheKey)
+
+  if (cachedEntry && cachedEntry.expiresAt > Date.now()) {
+    return cachedEntry.users
+  }
+
+  const response = await adminApi.searchUsers(trimmedQuery, 1, limit)
+  const users = uniqueUsersById(extractUsers(response.data)).slice(0, limit)
+
+  adminUserSearchCache.set(cacheKey, {
+    expiresAt: Date.now() + ADMIN_USER_SEARCH_CACHE_TTL_MS,
+    users,
+  })
+
+  return users
 }
 
 export const fetchAdminUserPool = async ({

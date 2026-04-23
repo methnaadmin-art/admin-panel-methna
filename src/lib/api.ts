@@ -265,7 +265,10 @@ export interface AdminPlanPayload {
   currency?: string
   billingCycle?: 'monthly' | 'yearly' | 'weekly' | 'one_time'
   googleProductId?: string
+  androidProductId?: string
   googleBasePlanId?: string
+  iosProductId?: string
+  appleProductId?: string
   stripePriceId?: string
   stripeProductId?: string
   durationDays?: number
@@ -300,6 +303,9 @@ export interface ConsumableProduct {
   platformAvailability: 'all' | 'mobile' | 'web'
   sortOrder: number
   googleProductId: string | null
+  androidProductId?: string | null
+  iosProductId: string | null
+  appleProductId?: string | null
   stripePriceId: string | null
   stripeProductId: string | null
   createdAt: string
@@ -317,6 +323,9 @@ export interface ConsumableProductPayload {
   platformAvailability?: 'all' | 'mobile' | 'web'
   sortOrder?: number
   googleProductId?: string
+  androidProductId?: string
+  iosProductId?: string
+  appleProductId?: string
   stripePriceId?: string
   stripeProductId?: string
 }
@@ -406,6 +415,16 @@ export const adminApi = {
           }
 
     return api.get('/admin/users', { params })
+  },
+  searchUsers: (query: string, page = 1, limit = 10) => {
+    const trimmedQuery = typeof query === 'string' ? query.trim() : ''
+
+    return tryApiRequests([
+      () => api.get('/admin/users/search', { params: { q: trimmedQuery, page, limit } }),
+      () => api.get('/admin/users/search', { params: { query: trimmedQuery, page, limit } }),
+      () => api.get('/admin/users/search', { params: { search: trimmedQuery, page, limit } }),
+      () => api.get('/admin/users', { params: { page, limit, search: trimmedQuery } }),
+    ])
   },
   createUser: (data: { email: string; password: string; firstName: string; lastName: string; role?: string; status?: string }) =>
     api.post('/admin/users', data),
@@ -660,14 +679,25 @@ export const adminApi = {
   },
 
   // Notifications
-  getNotifications: (params: AdminNotificationsQueryParams = {}) =>
-    api.get('/admin/notifications', {
-      params: {
-        page: params.page ?? 1,
-        limit: params.limit ?? 20,
-        ...params,
-      },
-    }),
+  getNotifications: (params: AdminNotificationsQueryParams = {}) => {
+    const normalizedParams = {
+      page: params.page ?? 1,
+      limit: params.limit ?? 20,
+      ...params,
+    }
+    const searchText = getSearchText(normalizedParams)
+
+    return tryApiRequests([
+      () => api.get('/admin/notifications', { params: normalizedParams }),
+      () => api.get('/admin/notifications', {
+        params: {
+          ...normalizedParams,
+          q: searchText,
+          read: typeof normalizedParams.isRead === 'boolean' ? normalizedParams.isRead : undefined,
+        },
+      }),
+    ])
+  },
   sendNotification: (data: { userId?: string; title: string; body: string; type?: string; broadcast?: boolean; filters?: Record<string, any> }) =>
     api.post('/admin/notifications/send', data),
   previewNotificationRecipients: (filters: Record<string, any>) =>

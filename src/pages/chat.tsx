@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, useCallback } from 'react'
+import { useEffect, useState, useRef, useCallback, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { adminApi } from '@/lib/api'
@@ -141,6 +141,7 @@ export default function ChatPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [page, setPage] = useState(1)
+  const [searchInput, setSearchInput] = useState('')
   const [search, setSearch] = useState('')
   const [filterLocked, setFilterLocked] = useState(false)
   const [filterFlagged, setFilterFlagged] = useState(false)
@@ -160,6 +161,15 @@ export default function ChatPage() {
   const [flagDialog, setFlagDialog] = useState<{ open: boolean; id: string; flagged: boolean }>({ open: false, id: '', flagged: false })
   const [flagReason, setFlagReason] = useState('')
   const [actionLoading, setActionLoading] = useState(false)
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => {
+      setSearch(searchInput.trim())
+      setPage(1)
+    }, 300)
+
+    return () => window.clearTimeout(timeout)
+  }, [searchInput])
 
   const fetchConversations = useCallback(async () => {
     setLoading(true)
@@ -283,6 +293,43 @@ export default function ChatPage() {
 
   const totalPages = Math.ceil(total / limit)
   const msgTotalPages = Math.ceil(msgTotal / msgLimit)
+  const filteredConversations = useMemo(() => {
+    const normalizedSearch = search.trim().toLowerCase()
+
+    return conversations.filter((convo) => {
+      if (filterLocked && !convo.isLocked) {
+        return false
+      }
+
+      if (filterFlagged && !convo.isFlagged) {
+        return false
+      }
+
+      if (!normalizedSearch) {
+        return true
+      }
+
+      const haystack = [
+        convo.id,
+        convo.user1Id,
+        convo.user2Id,
+        convo.lastMessageContent,
+        convo.user1?.firstName,
+        convo.user1?.lastName,
+        convo.user1?.email,
+        (convo.user1 as any)?.username,
+        convo.user2?.firstName,
+        convo.user2?.lastName,
+        convo.user2?.email,
+        (convo.user2 as any)?.username,
+      ]
+        .filter((value): value is string => typeof value === 'string' && value.length > 0)
+        .join(' ')
+        .toLowerCase()
+
+      return haystack.includes(normalizedSearch)
+    })
+  }, [conversations, filterFlagged, filterLocked, search])
 
   // ─── CONVERSATION DETAIL VIEW (WhatsApp-style) ──────────────
   if (selectedConvo) {
@@ -524,9 +571,9 @@ export default function ChatPage() {
         <div className="relative flex-1 min-w-[200px]">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
-            placeholder="Search by sender or receiver name..."
-            value={search}
-            onChange={(e) => { setSearch(e.target.value); setPage(1) }}
+            placeholder="Search by name, email, username, user ID, or message..."
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
             className="pl-9"
           />
         </div>
@@ -567,11 +614,11 @@ export default function ChatPage() {
                 Retry
               </Button>
             </div>
-          ) : conversations.length === 0 ? (
+          ) : filteredConversations.length === 0 ? (
             <p className="py-8 text-center text-muted-foreground">{t('chat.noConversations')}</p>
           ) : (
             <div className="divide-y">
-              {conversations.map((convo) => {
+              {filteredConversations.map((convo) => {
                 const p1Name = convo.user1 ? `${convo.user1.firstName} ${convo.user1.lastName}` : convo.user1Id.slice(0, 8)
                 const p2Name = convo.user2 ? `${convo.user2.firstName} ${convo.user2.lastName}` : convo.user2Id.slice(0, 8)
                 const p1Photo = (convo.user1 as any)?.profile?.photos?.[0]?.url || (convo.user1 as any)?.photos?.[0]?.url

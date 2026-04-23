@@ -1,8 +1,22 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import {
+  ArrowUpDown,
+  Bell,
+  CalendarDays,
+  Check,
+  ChevronLeft,
+  ChevronRight,
+  FilterX,
+  Loader2,
+  Search,
+  UserRound,
+} from 'lucide-react'
 import { adminApi } from '@/lib/api'
-import { Button } from '@/components/ui/button'
+import { searchAdminUsers } from '@/lib/admin-user-search'
+import { formatDateTime } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import {
@@ -12,20 +26,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { formatDateTime } from '@/lib/utils'
-import {
-  Loader2,
-  Bell,
-  Search,
-  ChevronLeft,
-  ChevronRight,
-  CalendarDays,
-  FilterX,
-  ArrowUpDown,
-  UserRound,
-} from 'lucide-react'
 
 type AdminNotification = Record<string, any>
+type AdminUserCandidate = Record<string, any>
 
 const typeBadge = (rawType: string) => {
   const type = (rawType || '').toLowerCase().trim()
@@ -50,6 +53,11 @@ const typeBadge = (rawType: string) => {
   }
 }
 
+const candidateLabel = (candidate: AdminUserCandidate) => {
+  const fullName = `${candidate.firstName || ''} ${candidate.lastName || ''}`.trim()
+  return fullName || candidate.email || candidate.username || candidate.id
+}
+
 export default function NotificationsPage() {
   const { t } = useTranslation()
   const [notifications, setNotifications] = useState<AdminNotification[]>([])
@@ -58,14 +66,65 @@ export default function NotificationsPage() {
   const [limit] = useState(20)
   const [loading, setLoading] = useState(true)
 
+  const [searchInput, setSearchInput] = useState('')
   const [search, setSearch] = useState('')
+  const [selectedUser, setSelectedUser] = useState<AdminUserCandidate | null>(null)
+  const [userLookup, setUserLookup] = useState('')
   const [userIdFilter, setUserIdFilter] = useState('')
+  const [userCandidates, setUserCandidates] = useState<AdminUserCandidate[]>([])
+  const [userLookupLoading, setUserLookupLoading] = useState(false)
   const [typeFilter, setTypeFilter] = useState('all')
   const [readFilter, setReadFilter] = useState<'all' | 'read' | 'unread'>('all')
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
   const [sortBy, setSortBy] = useState('createdAt')
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc')
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => {
+      setSearch(searchInput.trim())
+      setPage(1)
+    }, 300)
+
+    return () => window.clearTimeout(timeout)
+  }, [searchInput])
+
+  useEffect(() => {
+    const query = userLookup.trim()
+
+    if (query.length < 2 || selectedUser?.id && query === candidateLabel(selectedUser)) {
+      setUserCandidates([])
+      setUserLookupLoading(false)
+      return
+    }
+
+    let cancelled = false
+    const timeout = window.setTimeout(() => {
+      setUserLookupLoading(true)
+      searchAdminUsers({ query, limit: 8 })
+        .then((users) => {
+          if (!cancelled) {
+            setUserCandidates(users)
+          }
+        })
+        .catch((error) => {
+          console.error('[NotificationsPage] Failed to search users', error)
+          if (!cancelled) {
+            setUserCandidates([])
+          }
+        })
+        .finally(() => {
+          if (!cancelled) {
+            setUserLookupLoading(false)
+          }
+        })
+    }, 250)
+
+    return () => {
+      cancelled = true
+      window.clearTimeout(timeout)
+    }
+  }, [selectedUser, userLookup])
 
   const fetchNotifications = async () => {
     setLoading(true)
@@ -77,8 +136,8 @@ export default function NotificationsPage() {
         sortOrder,
       }
 
-      if (search.trim()) params.search = search.trim()
-      if (userIdFilter.trim()) params.userId = userIdFilter.trim()
+      if (search) params.search = search
+      if (userIdFilter) params.userId = userIdFilter
       if (typeFilter !== 'all') params.type = typeFilter
       if (readFilter === 'read') params.isRead = true
       if (readFilter === 'unread') params.isRead = false
@@ -86,10 +145,11 @@ export default function NotificationsPage() {
       if (dateTo) params.dateTo = dateTo
 
       const { data } = await adminApi.getNotifications(params)
-      setNotifications(data.notifications || data || [])
-      setTotal(Number(data.total || 0))
-    } catch (err) {
-      console.error(err)
+      const records = data.notifications || data.items || data.results || data.data || data || []
+      setNotifications(Array.isArray(records) ? records : [])
+      setTotal(Number(data.total || data.count || records.length || 0))
+    } catch (error) {
+      console.error(error)
       setNotifications([])
       setTotal(0)
     } finally {
@@ -99,7 +159,7 @@ export default function NotificationsPage() {
 
   useEffect(() => {
     fetchNotifications()
-  }, [page, search, userIdFilter, typeFilter, readFilter, dateFrom, dateTo, sortBy, sortOrder])
+  }, [page, limit, search, userIdFilter, typeFilter, readFilter, dateFrom, dateTo, sortBy, sortOrder])
 
   const unreadVisibleCount = useMemo(
     () => notifications.filter((notification) => !notification.isRead).length,
@@ -107,8 +167,12 @@ export default function NotificationsPage() {
   )
 
   const resetFilters = () => {
+    setSearchInput('')
     setSearch('')
+    setSelectedUser(null)
+    setUserLookup('')
     setUserIdFilter('')
+    setUserCandidates([])
     setTypeFilter('all')
     setReadFilter('all')
     setDateFrom('')
@@ -119,30 +183,31 @@ export default function NotificationsPage() {
   }
 
   const totalPages = Math.ceil(total / limit)
+  const showUserLookupDropdown = userLookup.trim().length >= 2 && (userLookupLoading || userCandidates.length > 0)
 
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold">{t('notifications.title')}</h1>
-        <p className="text-muted-foreground">Admin notifications history with full filtering and search.</p>
+        <p className="text-muted-foreground">Search, filter, and review notification history with scalable user lookup.</p>
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <Card>
           <CardContent className="flex items-center gap-4 p-6">
-            <div className="rounded-lg bg-blue-50 p-3">
-              <Bell className="h-6 w-6 text-blue-500" />
+            <div className="rounded-lg bg-violet-50 p-3">
+              <Bell className="h-6 w-6 text-violet-500" />
             </div>
             <div>
-              <p className="text-sm text-muted-foreground">Total Matching</p>
+              <p className="text-sm text-muted-foreground">Total Notifications</p>
               <p className="text-2xl font-bold">{total}</p>
             </div>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="flex items-center gap-4 p-6">
-            <div className="rounded-lg bg-amber-50 p-3">
-              <UserRound className="h-6 w-6 text-amber-500" />
+            <div className="rounded-lg bg-fuchsia-50 p-3">
+              <UserRound className="h-6 w-6 text-fuchsia-500" />
             </div>
             <div>
               <p className="text-sm text-muted-foreground">Unread In View</p>
@@ -152,8 +217,8 @@ export default function NotificationsPage() {
         </Card>
         <Card>
           <CardContent className="flex items-center gap-4 p-6">
-            <div className="rounded-lg bg-emerald-50 p-3">
-              <ArrowUpDown className="h-6 w-6 text-emerald-500" />
+            <div className="rounded-lg bg-violet-50 p-3">
+              <ArrowUpDown className="h-6 w-6 text-violet-500" />
             </div>
             <div>
               <p className="text-sm text-muted-foreground">Current Page</p>
@@ -163,102 +228,156 @@ export default function NotificationsPage() {
         </Card>
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
-        <div className="relative lg:col-span-2">
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-12">
+        <div className="relative sm:col-span-2 xl:col-span-4">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             className="pl-9"
-            placeholder="Search title, body, user, notification ID..."
-            value={search}
-            onChange={(e) => {
-              setSearch(e.target.value)
-              setPage(1)
-            }}
+            placeholder="Search title, body, notification ID, user name, email..."
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
           />
         </div>
 
-        <Input
-          placeholder="User ID"
-          value={userIdFilter}
-          onChange={(e) => {
-            setUserIdFilter(e.target.value)
-            setPage(1)
-          }}
-        />
+        <div className="relative sm:col-span-2 xl:col-span-4">
+          <Search className="absolute left-3 top-3.5 h-4 w-4 text-muted-foreground" />
+          <Input
+            className="pl-9"
+            placeholder="Search user by name, email, username, or ID"
+            value={userLookup}
+            onChange={(e) => {
+              setUserLookup(e.target.value)
+              setSelectedUser(null)
+              setUserIdFilter('')
+              setPage(1)
+            }}
+          />
 
-        <Select
-          value={typeFilter}
-          onValueChange={(value) => {
-            setTypeFilter(value)
-            setPage(1)
-          }}
-        >
-          <SelectTrigger>
-            <SelectValue placeholder="Type" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Types</SelectItem>
-            <SelectItem value="system">System</SelectItem>
-            <SelectItem value="message">Message</SelectItem>
-            <SelectItem value="match">Match</SelectItem>
-            <SelectItem value="like">Like</SelectItem>
-            <SelectItem value="subscription">Subscription</SelectItem>
-            <SelectItem value="ticket">Ticket</SelectItem>
-            <SelectItem value="verification">Verification</SelectItem>
-          </SelectContent>
-        </Select>
+          {showUserLookupDropdown && (
+            <div className="absolute z-20 mt-2 max-h-72 w-full overflow-y-auto rounded-xl border bg-background shadow-xl">
+              {userLookupLoading ? (
+                <div className="flex items-center gap-2 px-3 py-3 text-sm text-muted-foreground">
+                  <Loader2 className="h-4 w-4 animate-spin" /> Searching users...
+                </div>
+              ) : userCandidates.length > 0 ? (
+                userCandidates.map((candidate) => (
+                  <button
+                    key={candidate.id}
+                    type="button"
+                    className="flex w-full items-start justify-between gap-3 border-b px-3 py-3 text-left last:border-b-0 hover:bg-muted/50"
+                    onClick={() => {
+                      setSelectedUser(candidate)
+                      setUserLookup(candidateLabel(candidate))
+                      setUserIdFilter(candidate.id)
+                      setUserCandidates([])
+                      setPage(1)
+                    }}
+                  >
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium">{candidateLabel(candidate)}</p>
+                      <p className="truncate text-xs text-muted-foreground">
+                        {candidate.email || candidate.username || candidate.phone || candidate.id}
+                      </p>
+                    </div>
+                    {selectedUser?.id === candidate.id && <Check className="mt-0.5 h-4 w-4 shrink-0 text-primary" />}
+                  </button>
+                ))
+              ) : (
+                <p className="px-3 py-3 text-sm text-muted-foreground">No users found for this search.</p>
+              )}
+            </div>
+          )}
 
-        <Select
-          value={readFilter}
-          onValueChange={(value) => {
-            setReadFilter(value as 'all' | 'read' | 'unread')
-            setPage(1)
-          }}
-        >
-          <SelectTrigger>
-            <SelectValue placeholder="Read status" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Read States</SelectItem>
-            <SelectItem value="read">Read</SelectItem>
-            <SelectItem value="unread">Unread</SelectItem>
-          </SelectContent>
-        </Select>
+          {selectedUser && (
+            <div className="mt-2 rounded-lg border border-primary/20 bg-primary/5 px-3 py-2 text-sm">
+              <span className="font-medium">{candidateLabel(selectedUser)}</span>
+              <span className="ml-2 text-xs text-muted-foreground">{selectedUser.id}</span>
+            </div>
+          )}
+        </div>
 
-        <Select
-          value={sortBy}
-          onValueChange={(value) => {
-            setSortBy(value)
-            setPage(1)
-          }}
-        >
-          <SelectTrigger>
-            <SelectValue placeholder="Sort by" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="createdAt">Created</SelectItem>
-            <SelectItem value="type">Type</SelectItem>
-            <SelectItem value="isRead">Read</SelectItem>
-          </SelectContent>
-        </Select>
+        <div className="xl:col-span-2">
+          <Select
+            value={typeFilter}
+            onValueChange={(value) => {
+              setTypeFilter(value)
+              setPage(1)
+            }}
+          >
+            <SelectTrigger>
+              <SelectValue placeholder="Type" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Types</SelectItem>
+              <SelectItem value="system">System</SelectItem>
+              <SelectItem value="message">Message</SelectItem>
+              <SelectItem value="match">Match</SelectItem>
+              <SelectItem value="like">Like</SelectItem>
+              <SelectItem value="subscription">Subscription</SelectItem>
+              <SelectItem value="ticket">Ticket</SelectItem>
+              <SelectItem value="verification">Verification</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
 
-        <Select
-          value={sortOrder}
-          onValueChange={(value) => {
-            setSortOrder(value as 'asc' | 'desc')
-            setPage(1)
-          }}
-        >
-          <SelectTrigger>
-            <SelectValue placeholder="Order" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="desc">Descending</SelectItem>
-            <SelectItem value="asc">Ascending</SelectItem>
-          </SelectContent>
-        </Select>
+        <div className="xl:col-span-2">
+          <Select
+            value={readFilter}
+            onValueChange={(value) => {
+              setReadFilter(value as 'all' | 'read' | 'unread')
+              setPage(1)
+            }}
+          >
+            <SelectTrigger>
+              <SelectValue placeholder="Read status" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Read States</SelectItem>
+              <SelectItem value="read">Read</SelectItem>
+              <SelectItem value="unread">Unread</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
 
-        <div>
+        <div className="xl:col-span-2">
+          <Select
+            value={sortBy}
+            onValueChange={(value) => {
+              setSortBy(value)
+              setPage(1)
+            }}
+          >
+            <SelectTrigger>
+              <SelectValue placeholder="Sort by" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="createdAt">Created</SelectItem>
+              <SelectItem value="type">Type</SelectItem>
+              <SelectItem value="isRead">Read</SelectItem>
+              <SelectItem value="title">Title</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="xl:col-span-2">
+          <Select
+            value={sortOrder}
+            onValueChange={(value) => {
+              setSortOrder(value as 'asc' | 'desc')
+              setPage(1)
+            }}
+          >
+            <SelectTrigger>
+              <SelectValue placeholder="Order" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="desc">Descending</SelectItem>
+              <SelectItem value="asc">Ascending</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="xl:col-span-2">
           <label className="mb-1 flex items-center gap-1 text-[11px] font-medium text-muted-foreground">
             <CalendarDays className="h-3.5 w-3.5" /> From
           </label>
@@ -272,7 +391,7 @@ export default function NotificationsPage() {
           />
         </div>
 
-        <div>
+        <div className="xl:col-span-2">
           <label className="mb-1 flex items-center gap-1 text-[11px] font-medium text-muted-foreground">
             <CalendarDays className="h-3.5 w-3.5" /> To
           </label>
@@ -286,7 +405,7 @@ export default function NotificationsPage() {
           />
         </div>
 
-        <div className="sm:col-span-2 lg:col-span-6 flex justify-end">
+        <div className="flex justify-end sm:col-span-2 xl:col-span-12">
           <Button variant="outline" size="sm" className="gap-2" onClick={resetFilters}>
             <FilterX className="h-4 w-4" /> Reset Filters
           </Button>
@@ -320,7 +439,7 @@ export default function NotificationsPage() {
                 <tbody className="divide-y">
                   {notifications.map((notification) => {
                     const name = `${notification.user?.firstName || ''} ${notification.user?.lastName || ''}`.trim()
-                    const userLabel = name || notification.user?.email || notification.userId || 'Unknown user'
+                    const userLabel = name || notification.user?.email || notification.user?.username || notification.userId || 'Unknown user'
 
                     return (
                       <tr key={notification.id} className="hover:bg-muted/50">
@@ -332,7 +451,7 @@ export default function NotificationsPage() {
                         </td>
                         <td className="py-3 pr-4">{typeBadge(notification.type)}</td>
                         <td className="py-3 pr-4 font-medium">{notification.title || '-'}</td>
-                        <td className="py-3 pr-4 text-muted-foreground max-w-[360px] truncate">{notification.body || '-'}</td>
+                        <td className="max-w-[360px] py-3 pr-4 text-muted-foreground truncate">{notification.body || '-'}</td>
                         <td className="py-3 pr-4">
                           <Badge variant={notification.isRead ? 'secondary' : 'warning'}>
                             {notification.isRead ? 'Read' : 'Unread'}
