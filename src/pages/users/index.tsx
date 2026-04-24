@@ -34,6 +34,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { useToast } from '@/components/ui/toast'
+import { useAuth } from '@/contexts/auth-context'
 import { formatDateTime } from '@/lib/utils'
 import {
   Search,
@@ -504,6 +505,9 @@ export default function UsersPage() {
   const { t } = useTranslation()
   const navigate = useNavigate()
   const { toast } = useToast()
+  const { user: adminUser } = useAuth()
+  const currentRole = typeof adminUser?.role === 'string' ? adminUser.role.toLowerCase() : ''
+  const canCreatePrivilegedUsers = currentRole === 'admin'
 
   const [users, setUsers] = useState<UserRecord[]>([])
   const [total, setTotal] = useState(0)
@@ -829,6 +833,15 @@ export default function UsersPage() {
   }
 
   const handleCreateUser = async () => {
+    if (!canCreatePrivilegedUsers) {
+      toast({
+        title: 'Only admins can create staff accounts',
+        description: 'Moderators and staff can review users, but only admins can create admin, staff, moderator, or user accounts.',
+        variant: 'error',
+      })
+      return
+    }
+
     if (!validateCreateForm()) return
     setCreateLoading(true)
     try {
@@ -1027,10 +1040,34 @@ export default function UsersPage() {
           <h1 className="text-2xl font-bold">{t('users.title')}</h1>
           <p className="text-muted-foreground">{t('users.subtitle')}</p>
         </div>
-        <Button onClick={() => setCreateDialog(true)} className="gap-2">
-          <UserPlus className="h-4 w-4" /> {t('users.createUser')}
-        </Button>
+        {canCreatePrivilegedUsers ? (
+          <Button onClick={() => setCreateDialog(true)} className="gap-2">
+            <UserPlus className="h-4 w-4" /> {t('users.createUser')}
+          </Button>
+        ) : null}
       </div>
+
+      {!canCreatePrivilegedUsers ? (
+        <Card className="border-amber-200 bg-amber-50/70">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base">Account creation is admin-only</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2 text-sm text-muted-foreground">
+            <p>
+              <strong>Admin</strong>: full platform access, including creating admin, staff, moderator, and user accounts.
+            </p>
+            <p>
+              <strong>Staff</strong>: admin-panel label that maps to the backend <strong>moderator</strong> role.
+            </p>
+            <p>
+              <strong>Moderator</strong>: moderation and review tools, but no privileged account creation.
+            </p>
+            <p>
+              <strong>User</strong>: standard member account with no admin-panel access.
+            </p>
+          </CardContent>
+        </Card>
+      ) : null}
 
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:flex-wrap">
         <div className="relative w-full sm:w-72">
@@ -1581,11 +1618,13 @@ export default function UsersPage() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={createDialog} onOpenChange={setCreateDialog}>
+      <Dialog open={canCreatePrivilegedUsers && createDialog} onOpenChange={setCreateDialog}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>{t('users.createUser')}</DialogTitle>
-            <DialogDescription>{t('users.subtitle')}</DialogDescription>
+            <DialogDescription>
+              Admin can create <strong>admin</strong>, <strong>staff</strong>, <strong>moderator</strong>, and <strong>user</strong> accounts. Staff is stored as the backend moderator role.
+            </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
             <div className="grid grid-cols-2 gap-3">
@@ -1618,7 +1657,7 @@ export default function UsersPage() {
                   <SelectContent>
                     <SelectItem value="user">{t('users.user')}</SelectItem>
                     <SelectItem value="admin">{t('users.admin')}</SelectItem>
-                    <SelectItem value="staff">Staff</SelectItem>
+                    <SelectItem value="staff">Staff (moderator access)</SelectItem>
                     <SelectItem value="moderator">{t('users.moderator')}</SelectItem>
                   </SelectContent>
                 </Select>

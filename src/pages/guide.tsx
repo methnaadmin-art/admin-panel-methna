@@ -157,9 +157,21 @@ export default function GuidePage() {
             </div>
             <div className="rounded-lg border p-4 space-y-2">
               <div className="flex items-center gap-2">
+                <Badge className="bg-violet-500 text-white">{t('guide.staffRole')}</Badge>
+              </div>
+              <p className="text-sm text-muted-foreground">{t('guide.staffRoleDesc')}</p>
+            </div>
+            <div className="rounded-lg border p-4 space-y-2">
+              <div className="flex items-center gap-2">
                 <Badge className="bg-blue-500 text-white">{t('guide.moderatorRole')}</Badge>
               </div>
               <p className="text-sm text-muted-foreground">{t('guide.moderatorRoleDesc')}</p>
+            </div>
+            <div className="rounded-lg border p-4 space-y-2">
+              <div className="flex items-center gap-2">
+                <Badge className="bg-slate-500 text-white">{t('guide.userRole')}</Badge>
+              </div>
+              <p className="text-sm text-muted-foreground">{t('guide.userRoleDesc')}</p>
             </div>
           </div>
         </CardContent>
