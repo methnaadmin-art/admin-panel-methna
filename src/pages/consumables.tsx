@@ -48,6 +48,7 @@ interface ProductFormState {
   platformAvailability: 'all' | 'mobile' | 'web'
   sortOrder: string
   googleProductId: string
+  iosProductId: string
   stripePriceId: string
   stripeProductId: string
   isActive: boolean
@@ -66,6 +67,7 @@ const createInitialFormState = (product?: ConsumableProduct): ProductFormState =
       platformAvailability: 'all',
       sortOrder: '0',
       googleProductId: '',
+      iosProductId: '',
       stripePriceId: '',
       stripeProductId: '',
       isActive: true,
@@ -82,6 +84,7 @@ const createInitialFormState = (product?: ConsumableProduct): ProductFormState =
     platformAvailability: product.platformAvailability,
     sortOrder: String(product.sortOrder),
     googleProductId: product.googleProductId || '',
+    iosProductId: product.iosProductId || product.appleProductId || '',
     stripePriceId: product.stripePriceId || '',
     stripeProductId: product.stripeProductId || '',
     isActive: product.isActive,
@@ -175,6 +178,9 @@ export default function ConsumablesPage() {
         platformAvailability: form.platformAvailability,
         sortOrder: parseInt(form.sortOrder, 10) || 0,
         googleProductId: form.googleProductId.trim() || undefined,
+        androidProductId: form.googleProductId.trim() || undefined,
+        iosProductId: form.iosProductId.trim() || undefined,
+        appleProductId: form.iosProductId.trim() || undefined,
         stripePriceId: form.stripePriceId.trim() || undefined,
         stripeProductId: form.stripeProductId.trim() || undefined,
       }
@@ -304,6 +310,12 @@ export default function ConsumablesPage() {
                       <div>
                         <span className="text-muted-foreground">Google Play:</span>{' '}
                         <code className="bg-muted px-1 rounded">{product.googleProductId}</code>
+                      </div>
+                    )}
+                    {(product.iosProductId || product.appleProductId) && (
+                      <div>
+                        <span className="text-muted-foreground">App Store:</span>{' '}
+                        <code className="bg-muted px-1 rounded">{product.iosProductId || product.appleProductId}</code>
                       </div>
                     )}
                     {product.stripePriceId && (
@@ -464,6 +476,14 @@ export default function ConsumablesPage() {
                     placeholder="com.methnapp.app.likes_10"
                     value={form.googleProductId}
                     onChange={(e) => setForm({ ...form, googleProductId: e.target.value })}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs text-muted-foreground">Apple App Store Product ID</label>
+                  <Input
+                    placeholder="com.methnapp.app.likes_10"
+                    value={form.iosProductId}
+                    onChange={(e) => setForm({ ...form, iosProductId: e.target.value })}
                   />
                 </div>
                 <div className="space-y-1">

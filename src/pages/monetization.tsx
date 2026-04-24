@@ -63,7 +63,7 @@ const defaultEntitlements = () => ({
 
 const defaultFormData = () => ({
   code: '', name: '', description: '', price: 0, currency: 'usd',
-  billingCycle: 'monthly', stripePriceId: '', googleProductId: '', durationDays: 30,
+  billingCycle: 'monthly', stripePriceId: '', googleProductId: '', iosProductId: '', durationDays: 30,
   isActive: true, isVisible: true, sortOrder: 0,
   entitlements: defaultEntitlements(),
   features: [],
@@ -121,6 +121,8 @@ export default function MonetizationPage() {
       const ent = formData.entitlements || {}
       const payload = {
         ...formData,
+        androidProductId: formData.googleProductId || undefined,
+        appleProductId: formData.iosProductId || undefined,
         dailyLikesLimit: ent.dailyLikes ?? formData.dailyLikesLimit,
         dailySuperLikesLimit: ent.dailySuperLikes ?? formData.dailySuperLikesLimit ?? 0,
         dailyComplimentsLimit: ent.dailyCompliments ?? formData.dailyComplimentsLimit,
@@ -279,7 +281,10 @@ export default function MonetizationPage() {
                       <p className="text-xs text-muted-foreground mb-1 font-mono">Stripe: {plan.stripePriceId}</p>
                     )}
                     {plan.googleProductId && (
-                      <p className="text-xs text-muted-foreground mb-2 font-mono">Google Play: {plan.googleProductId}</p>
+                      <p className="text-xs text-muted-foreground mb-1 font-mono">Google Play: {plan.googleProductId}</p>
+                    )}
+                    {(plan.iosProductId || plan.appleProductId) && (
+                      <p className="text-xs text-muted-foreground mb-2 font-mono">App Store: {plan.iosProductId || plan.appleProductId}</p>
                     )}
                     <div className="text-xs text-muted-foreground mb-2 grid grid-cols-2 gap-1">
                       <p>Likes: {formatLimit(ent.dailyLikes ?? plan.dailyLikesLimit)}/d</p>
@@ -374,6 +379,11 @@ export default function MonetizationPage() {
                     <label className="text-sm font-medium">Google Play Product ID (optional)</label>
                     <Input value={formData.googleProductId || ''} onChange={e => setFormData({...formData, googleProductId: e.target.value || null})} placeholder="com.methnapp.app.premium_monthly" />
                     <p className="text-xs text-muted-foreground mt-1">The in-app product ID from Google Play Console. Must match the subscription product ID exactly.</p>
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium">Apple App Store Product ID (optional)</label>
+                    <Input value={formData.iosProductId || ''} onChange={e => setFormData({...formData, iosProductId: e.target.value || null, appleProductId: e.target.value || null})} placeholder="com.methnapp.app.premium_monthly" />
+                    <p className="text-xs text-muted-foreground mt-1">The iOS subscription product ID from App Store Connect.</p>
                   </div>
                 </div>
                 <div className="flex items-center gap-4 pt-2">

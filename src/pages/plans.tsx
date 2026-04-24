@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+﻿import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   adminApi,
   type AdminPlan,
@@ -45,6 +45,7 @@ interface PlanFormState {
   billingCycle: 'monthly' | 'yearly' | 'weekly' | 'one_time'
   googleProductId: string
   googleBasePlanId: string
+  iosProductId: string
   stripePriceId: string
   stripeProductId: string
   durationDays: string
@@ -131,6 +132,7 @@ const createInitialFormState = (plan?: AdminPlan): PlanFormState => {
       billingCycle: 'monthly',
       googleProductId: '',
       googleBasePlanId: '',
+      iosProductId: '',
       stripePriceId: '',
       stripeProductId: '',
       durationDays: '30',
@@ -151,6 +153,7 @@ const createInitialFormState = (plan?: AdminPlan): PlanFormState => {
     billingCycle: (plan.billingCycle || 'monthly') as PlanFormState['billingCycle'],
     googleProductId: plan.googleProductId || '',
     googleBasePlanId: plan.googleBasePlanId || '',
+    iosProductId: plan.iosProductId || plan.appleProductId || '',
     stripePriceId: plan.stripePriceId || '',
     stripeProductId: plan.stripeProductId || '',
     durationDays: String(plan.durationDays ?? 30),
@@ -265,7 +268,10 @@ export default function PlansPage() {
       currency: form.currency.trim().toLowerCase() || 'usd',
       billingCycle: form.billingCycle,
       googleProductId: form.googleProductId.trim() || undefined,
+      androidProductId: form.googleProductId.trim() || undefined,
       googleBasePlanId: form.googleBasePlanId.trim() || undefined,
+      iosProductId: form.iosProductId.trim() || undefined,
+      appleProductId: form.iosProductId.trim() || undefined,
       stripePriceId: form.stripePriceId.trim() || undefined,
       stripeProductId: form.stripeProductId.trim() || undefined,
       durationDays: Number(form.durationDays || 30),
@@ -291,10 +297,14 @@ export default function PlansPage() {
 
     const googleProductId = payload.googleProductId?.trim() || undefined
     const googleBasePlanId = payload.googleBasePlanId?.trim() || undefined
+    const iosProductId = payload.iosProductId?.trim() || undefined
     const isPaidPlan = payload.price > 0
 
     payload.googleProductId = googleProductId
+    payload.androidProductId = googleProductId
     payload.googleBasePlanId = googleBasePlanId
+    payload.iosProductId = iosProductId
+    payload.appleProductId = iosProductId
 
     if ((googleProductId && !googleBasePlanId) || (!googleProductId && googleBasePlanId)) {
       throw new Error('Google Product ID and Google Base Plan ID must both be provided together')
@@ -326,6 +336,21 @@ export default function PlansPage() {
         throw new Error(
           `Google mapping ${googleProductId} + ${googleBasePlanId} is already used by plan ${duplicate.code}`,
         )
+      }
+    }
+
+    if (iosProductId) {
+      const normalizedIosProduct = iosProductId.toLowerCase()
+      const duplicate = plans.find((plan) => {
+        if (editingPlan && plan.id === editingPlan.id) {
+          return false
+        }
+
+        return String(plan.iosProductId || plan.appleProductId || '').trim().toLowerCase() === normalizedIosProduct
+      })
+
+      if (duplicate) {
+        throw new Error(`Apple Product ID ${iosProductId} is already used by plan ${duplicate.code}`)
       }
     }
 
@@ -378,7 +403,7 @@ export default function PlansPage() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold">Plans</h1>
-          <p className="text-muted-foreground">Plan catalog: Google Play (mobile) + Stripe (website) billing &amp; entitlement management.</p>
+          <p className="text-muted-foreground">Plan catalog: Google Play, App Store, and Stripe billing &amp; entitlement management.</p>
         </div>
         <div className="flex items-center gap-2">
           <Button variant="outline" onClick={fetchPlans} disabled={loading} className="gap-2">
@@ -417,6 +442,7 @@ export default function PlansPage() {
                     <th className="pb-3 pr-4 font-medium">Name</th>
                     <th className="pb-3 pr-4 font-medium">Price</th>
                     <th className="pb-3 pr-4 font-medium">Google Product</th>
+                    <th className="pb-3 pr-4 font-medium">Apple Product</th>
                     <th className="pb-3 pr-4 font-medium">Stripe Price</th>
                     <th className="pb-3 pr-4 font-medium">Status</th>
                     <th className="pb-3 font-medium text-right">Actions</th>
@@ -430,8 +456,9 @@ export default function PlansPage() {
                       <td className="py-3 pr-4 text-muted-foreground">
                         {Number(plan.price || 0).toFixed(2)} {(plan.currency || 'usd').toUpperCase()} / {plan.billingCycle || 'monthly'}
                       </td>
-                      <td className="py-3 pr-4 text-xs text-muted-foreground">{plan.googleProductId || '—'}</td>
-                      <td className="py-3 pr-4 text-xs text-muted-foreground">{plan.stripePriceId || '—'}</td>
+                      <td className="py-3 pr-4 text-xs text-muted-foreground">{plan.googleProductId || '-'}</td>
+                      <td className="py-3 pr-4 text-xs text-muted-foreground">{plan.iosProductId || plan.appleProductId || '-'}</td>
+                      <td className="py-3 pr-4 text-xs text-muted-foreground">{plan.stripePriceId || '-'}</td>
                       <td className="py-3 pr-4">
                         <div className="flex items-center gap-2">
                           <Badge variant={plan.isActive ? 'success' : 'secondary'}>{plan.isActive ? 'Active' : 'Inactive'}</Badge>
@@ -523,6 +550,18 @@ export default function PlansPage() {
                   placeholder="monthly001"
                 />
                 <p className="text-xs text-muted-foreground">Required for paid plans. Unique with Google Product ID as a pair.</p>
+              </div>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium">Apple Product ID</label>
+                <Input
+                  value={form.iosProductId}
+                  onChange={(e) => onFormChange('iosProductId', e.target.value)}
+                  placeholder="com.methnapp.app.premium_monthly"
+                />
+                <p className="text-xs text-muted-foreground">iOS billing via App Store Connect. Keep separate from Google Play product IDs.</p>
               </div>
             </div>
 
