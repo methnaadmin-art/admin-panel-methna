@@ -416,15 +416,41 @@ export const adminApi = {
 
     return api.get('/admin/users', { params })
   },
-  searchUsers: (query: string, page = 1, limit = 10) => {
+  searchUsers: async (query: string, page = 1, limit = 10) => {
     const trimmedQuery = typeof query === 'string' ? query.trim() : ''
-
-    return tryApiRequests([
-      () => api.get('/admin/users/search', { params: { q: trimmedQuery, page, limit } }),
+    const requests = [
       () => api.get('/admin/users/search', { params: { query: trimmedQuery, page, limit } }),
       () => api.get('/admin/users/search', { params: { search: trimmedQuery, page, limit } }),
       () => api.get('/admin/users', { params: { page, limit, search: trimmedQuery } }),
-    ])
+      () => api.get('/admin/users/search', { params: { q: trimmedQuery, page, limit } }),
+    ]
+
+    let lastResponse: any = null
+    let lastError: unknown
+
+    for (let index = 0; index < requests.length; index += 1) {
+      try {
+        const response = await requests[index]()
+        const matches = extractCollection(response.data)
+        lastResponse = response
+
+        if (matches.length > 0 || index === requests.length - 1) {
+          return response
+        }
+      } catch (error) {
+        lastError = error
+        const hasMoreRequests = index < requests.length - 1
+        if (!hasMoreRequests || !shouldTryAlternativeRequest(error)) {
+          throw error
+        }
+      }
+    }
+
+    if (lastResponse) {
+      return lastResponse
+    }
+
+    throw lastError
   },
   createUser: (data: { email: string; password: string; firstName: string; lastName: string; role?: string; status?: string }) =>
     api.post('/admin/users', data),
