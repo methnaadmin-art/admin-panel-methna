@@ -29,6 +29,7 @@ import {
 
 type AdminNotification = Record<string, any>
 type AdminUserCandidate = Record<string, any>
+const NOTIFICATION_SEARCH_WINDOW_LIMIT = 250
 
 const typeBadge = (rawType: string) => {
   const type = (rawType || '').toLowerCase().trim()
@@ -58,6 +59,47 @@ const candidateLabel = (candidate: AdminUserCandidate) => {
   return fullName || candidate.email || candidate.username || candidate.id
 }
 
+const notificationUserLabel = (notification: AdminNotification) => {
+  const fullName = `${notification.user?.firstName || ''} ${notification.user?.lastName || ''}`.trim()
+  return fullName || notification.user?.email || notification.user?.username || notification.userId || 'Unknown user'
+}
+
+const extractNotificationRecords = (payload: any): AdminNotification[] => {
+  const records = payload?.notifications || payload?.items || payload?.results || payload?.data || payload || []
+  return Array.isArray(records) ? records : []
+}
+
+const notificationMatchesSearch = (notification: AdminNotification, rawQuery: string) => {
+  const terms = rawQuery
+    .trim()
+    .toLowerCase()
+    .split(/\s+/)
+    .filter(Boolean)
+
+  if (terms.length === 0) {
+    return true
+  }
+
+  const fullName = `${notification.user?.firstName || ''} ${notification.user?.lastName || ''}`.trim()
+  const searchableValues = [
+    notification.id,
+    notification.title,
+    notification.body,
+    notification.type,
+    notification.userId,
+    notification.user?.id,
+    notification.user?.email,
+    notification.user?.username,
+    notification.user?.firstName,
+    notification.user?.lastName,
+    fullName,
+  ]
+    .filter((value): value is string | number => typeof value === 'string' || typeof value === 'number')
+    .map((value) => String(value).toLowerCase())
+
+  return terms.every((term) => searchableValues.some((value) => value.includes(term)))
+}
+
 export default function NotificationsPage() {
   const { t } = useTranslation()
   const [notifications, setNotifications] = useState<AdminNotification[]>([])
@@ -73,6 +115,7 @@ export default function NotificationsPage() {
   const [userIdFilter, setUserIdFilter] = useState('')
   const [userCandidates, setUserCandidates] = useState<AdminUserCandidate[]>([])
   const [userLookupLoading, setUserLookupLoading] = useState(false)
+  const [userLookupAttempted, setUserLookupAttempted] = useState(false)
   const [typeFilter, setTypeFilter] = useState('all')
   const [readFilter, setReadFilter] = useState<'all' | 'read' | 'unread'>('all')
   const [dateFrom, setDateFrom] = useState('')
@@ -95,22 +138,26 @@ export default function NotificationsPage() {
     if (query.length < 2 || selectedUser?.id && query === candidateLabel(selectedUser)) {
       setUserCandidates([])
       setUserLookupLoading(false)
+      setUserLookupAttempted(false)
       return
     }
 
     let cancelled = false
     const timeout = window.setTimeout(() => {
       setUserLookupLoading(true)
+      setUserLookupAttempted(false)
       searchAdminUsers({ query, limit: 8 })
         .then((users) => {
           if (!cancelled) {
             setUserCandidates(users)
+            setUserLookupAttempted(true)
           }
         })
         .catch((error) => {
           console.error('[NotificationsPage] Failed to search users', error)
           if (!cancelled) {
             setUserCandidates([])
+            setUserLookupAttempted(true)
           }
         })
         .finally(() => {
@@ -129,24 +176,42 @@ export default function NotificationsPage() {
   const fetchNotifications = async () => {
     setLoading(true)
     try {
-      const params: Record<string, any> = {
-        page,
+      const baseParams: Record<string, any> = {
         limit,
         sortBy,
         sortOrder,
       }
 
-      if (search) params.search = search
-      if (userIdFilter) params.userId = userIdFilter
-      if (typeFilter !== 'all') params.type = typeFilter
-      if (readFilter === 'read') params.isRead = true
-      if (readFilter === 'unread') params.isRead = false
-      if (dateFrom) params.dateFrom = dateFrom
-      if (dateTo) params.dateTo = dateTo
+      if (userIdFilter) baseParams.userId = userIdFilter
+      if (typeFilter !== 'all') baseParams.type = typeFilter
+      if (readFilter === 'read') baseParams.isRead = true
+      if (readFilter === 'unread') baseParams.isRead = false
+      if (dateFrom) baseParams.dateFrom = dateFrom
+      if (dateTo) baseParams.dateTo = dateTo
 
-      const { data } = await adminApi.getNotifications(params)
-      const records = data.notifications || data.items || data.results || data.data || data || []
-      setNotifications(Array.isArray(records) ? records : [])
+      if (search) {
+        const { data } = await adminApi.getNotifications({
+          ...baseParams,
+          page: 1,
+          limit: NOTIFICATION_SEARCH_WINDOW_LIMIT,
+        })
+        const filteredRecords = extractNotificationRecords(data).filter((notification) =>
+          notificationMatchesSearch(notification, search)
+        )
+        const startIndex = (page - 1) * limit
+        const endIndex = startIndex + limit
+
+        setNotifications(filteredRecords.slice(startIndex, endIndex))
+        setTotal(filteredRecords.length)
+        return
+      }
+
+      const { data } = await adminApi.getNotifications({
+        ...baseParams,
+        page,
+      })
+      const records = extractNotificationRecords(data)
+      setNotifications(records)
       setTotal(Number(data.total || data.count || records.length || 0))
     } catch (error) {
       console.error(error)
@@ -173,6 +238,7 @@ export default function NotificationsPage() {
     setUserLookup('')
     setUserIdFilter('')
     setUserCandidates([])
+    setUserLookupAttempted(false)
     setTypeFilter('all')
     setReadFilter('all')
     setDateFrom('')
@@ -183,7 +249,7 @@ export default function NotificationsPage() {
   }
 
   const totalPages = Math.ceil(total / limit)
-  const showUserLookupDropdown = userLookup.trim().length >= 2 && (userLookupLoading || userCandidates.length > 0)
+  const showUserLookupDropdown = userLookup.trim().length >= 2 && (userLookupLoading || userCandidates.length > 0 || userLookupAttempted)
 
   return (
     <div className="space-y-6">
@@ -249,6 +315,7 @@ export default function NotificationsPage() {
               setUserLookup(e.target.value)
               setSelectedUser(null)
               setUserIdFilter('')
+              setUserLookupAttempted(false)
               setPage(1)
             }}
           />
@@ -270,6 +337,7 @@ export default function NotificationsPage() {
                       setUserLookup(candidateLabel(candidate))
                       setUserIdFilter(candidate.id)
                       setUserCandidates([])
+                      setUserLookupAttempted(false)
                       setPage(1)
                     }}
                   >
@@ -438,8 +506,7 @@ export default function NotificationsPage() {
                 </thead>
                 <tbody className="divide-y">
                   {notifications.map((notification) => {
-                    const name = `${notification.user?.firstName || ''} ${notification.user?.lastName || ''}`.trim()
-                    const userLabel = name || notification.user?.email || notification.user?.username || notification.userId || 'Unknown user'
+                    const userLabel = notificationUserLabel(notification)
 
                     return (
                       <tr key={notification.id} className="hover:bg-muted/50">

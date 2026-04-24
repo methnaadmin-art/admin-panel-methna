@@ -692,7 +692,11 @@ export const adminApi = {
       () => api.get('/admin/notifications', {
         params: {
           ...normalizedParams,
+          search: searchText,
           q: searchText,
+          query: searchText,
+          term: searchText,
+          keyword: searchText,
           read: typeof normalizedParams.isRead === 'boolean' ? normalizedParams.isRead : undefined,
         },
       }),

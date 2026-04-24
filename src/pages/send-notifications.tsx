@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { adminApi } from '@/lib/api'
-import { fetchAdminUserPool } from '@/lib/admin-user-search'
+import { searchAdminUsers } from '@/lib/admin-user-search'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -15,13 +15,20 @@ import {
 } from '@/components/ui/select'
 import { Loader2, Bell, Send, Users, User, CheckCircle2, Filter, Eye, MapPin, Calendar, Crown, AlertTriangle } from 'lucide-react'
 
+const candidateLabel = (candidate: Record<string, any>) => {
+  const fullName = `${candidate.firstName || ''} ${candidate.lastName || ''}`.trim()
+  return fullName || candidate.email || candidate.username || candidate.id
+}
+
 export default function SendNotificationsPage() {
   const { t } = useTranslation()
   const [mode, setMode] = useState<'single' | 'broadcast'>('single')
   const [userId, setUserId] = useState('')
   const [userSearch, setUserSearch] = useState('')
+  const [selectedUser, setSelectedUser] = useState<Record<string, any> | null>(null)
   const [userCandidates, setUserCandidates] = useState<Array<Record<string, any>>>([])
   const [userSearchLoading, setUserSearchLoading] = useState(false)
+  const [userSearchAttempted, setUserSearchAttempted] = useState(false)
   const [title, setTitle] = useState('')
   const [body, setBody] = useState('')
   const [type, setType] = useState('system')
@@ -44,65 +51,50 @@ export default function SendNotificationsPage() {
 
   useEffect(() => {
     if (mode !== 'single') {
+      setUserCandidates([])
+      setUserSearchLoading(false)
+      setUserSearchAttempted(false)
+      return
+    }
+
+    const query = userSearch.trim()
+    if (query.length < 2 || (selectedUser?.id && query === candidateLabel(selectedUser))) {
+      setUserCandidates([])
+      setUserSearchLoading(false)
+      setUserSearchAttempted(false)
       return
     }
 
     let cancelled = false
-    setUserSearchLoading(true)
-    fetchAdminUserPool({})
-      .then((users) => {
-        if (!cancelled) {
-          setUserCandidates(users)
-        }
-      })
-      .catch((error) => {
-        console.error('[SendNotifications] Failed to load admin user candidates', error)
-        if (!cancelled) {
-          setUserCandidates([])
-        }
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setUserSearchLoading(false)
-        }
-      })
+    const timeout = window.setTimeout(() => {
+      setUserSearchLoading(true)
+      setUserSearchAttempted(false)
+      searchAdminUsers({ query, limit: 8 })
+        .then((users) => {
+          if (!cancelled) {
+            setUserCandidates(users)
+            setUserSearchAttempted(true)
+          }
+        })
+        .catch((error) => {
+          console.error('[SendNotifications] Failed to search admin users', error)
+          if (!cancelled) {
+            setUserCandidates([])
+            setUserSearchAttempted(true)
+          }
+        })
+        .finally(() => {
+          if (!cancelled) {
+            setUserSearchLoading(false)
+          }
+        })
+    }, 250)
 
     return () => {
       cancelled = true
+      window.clearTimeout(timeout)
     }
-  }, [mode])
-
-  const filteredUserCandidates = useMemo(() => {
-    const query = userSearch.trim().toLowerCase()
-    if (!query) {
-      return userCandidates.slice(0, 8)
-    }
-
-    return userCandidates
-      .filter((candidate) => {
-        const fullName = `${candidate.firstName || ''} ${candidate.lastName || ''}`.trim()
-        return [
-          candidate.id,
-          candidate.email,
-          candidate.username,
-          candidate.phone,
-          candidate.firstName,
-          candidate.lastName,
-          fullName,
-        ].some((value) => typeof value === 'string' && value.toLowerCase().includes(query))
-      })
-      .slice(0, 8)
-  }, [userCandidates, userSearch])
-
-  const selectedCandidate = useMemo(
-    () => userCandidates.find((candidate) => candidate.id === userId),
-    [userCandidates, userId],
-  )
-
-  const candidateLabel = (candidate: Record<string, any>) => {
-    const fullName = `${candidate.firstName || ''} ${candidate.lastName || ''}`.trim()
-    return fullName || candidate.email || candidate.username || candidate.id
-  }
+  }, [mode, selectedUser, userSearch])
 
   const handlePreview = async () => {
     setPreviewLoading(true)
@@ -134,6 +126,7 @@ export default function SendNotificationsPage() {
   const ageRangeInvalid = (filters.ageMin && isNaN(ageMinNum)) || (filters.ageMax && isNaN(ageMaxNum)) || (filters.ageMin && filters.ageMax && ageMinNum > ageMaxNum)
   const ageMinInvalid = filters.ageMin && (isNaN(ageMinNum) || ageMinNum < 13 || ageMinNum > 120)
   const ageMaxInvalid = filters.ageMax && (isNaN(ageMaxNum) || ageMaxNum < 13 || ageMaxNum > 120)
+  const showUserDropdown = mode === 'single' && userSearch.trim().length >= 2 && (userSearchLoading || userCandidates.length > 0 || userSearchAttempted)
 
   const handleSend = async () => {
     if (!title.trim() || !body.trim()) return
@@ -175,6 +168,9 @@ export default function SendNotificationsPage() {
       setBody('')
       setUserId('')
       setUserSearch('')
+      setSelectedUser(null)
+      setUserCandidates([])
+      setUserSearchAttempted(false)
       setPreviewCount(null)
     } catch (err: any) {
       setResult({
@@ -386,47 +382,53 @@ export default function SendNotificationsPage() {
               <label className="text-sm font-medium">Recipient *</label>
               <Input
                 value={userSearch}
-                onChange={(e) => setUserSearch(e.target.value)}
-                placeholder="Search by name, email, username, phone, or user ID"
+                onChange={(e) => {
+                  setUserSearch(e.target.value)
+                  setUserId('')
+                  setSelectedUser(null)
+                  setUserSearchAttempted(false)
+                }}
+                placeholder="Type name, email, username, or user ID to search"
               />
-              <Input
-                value={userId}
-                onChange={(e) => setUserId(e.target.value)}
-                placeholder={t('sendNotifications.userIdPlaceholder')}
-              />
-              {selectedCandidate && (
+              <p className="text-xs text-muted-foreground">Search starts after 2 characters and only matching users are shown.</p>
+              {selectedUser && (
                 <div className="rounded-lg border border-primary/20 bg-primary/5 px-3 py-2 text-sm">
-                  Selected: <span className="font-medium">{candidateLabel(selectedCandidate)}</span>
-                  <span className="ml-2 text-xs text-muted-foreground">{selectedCandidate.email}</span>
+                  Selected: <span className="font-medium">{candidateLabel(selectedUser)}</span>
+                  <span className="ml-2 text-xs text-muted-foreground">{selectedUser.email || selectedUser.id}</span>
                 </div>
               )}
-              <div className="rounded-lg border bg-muted/30">
-                {userSearchLoading ? (
-                  <div className="flex items-center gap-2 px-3 py-3 text-sm text-muted-foreground">
-                    <Loader2 className="h-4 w-4 animate-spin" /> Loading users...
-                  </div>
-                ) : filteredUserCandidates.length > 0 ? (
-                  filteredUserCandidates.map((candidate) => (
-                    <button
-                      key={candidate.id}
-                      type="button"
-                      className="flex w-full items-center justify-between gap-3 border-b px-3 py-2 text-left text-sm last:border-b-0 hover:bg-background"
-                      onClick={() => {
-                        setUserId(candidate.id)
-                        setUserSearch(candidateLabel(candidate))
-                      }}
-                    >
-                      <span>
-                        <span className="font-medium">{candidateLabel(candidate)}</span>
-                        <span className="ml-2 text-xs text-muted-foreground">{candidate.email}</span>
-                      </span>
-                      <span className="text-[10px] text-muted-foreground">{candidate.id}</span>
-                    </button>
-                  ))
-                ) : (
-                  <p className="px-3 py-3 text-sm text-muted-foreground">No users found. You can still paste a user ID manually.</p>
-                )}
-              </div>
+              {showUserDropdown && (
+                <div className="rounded-lg border bg-muted/30">
+                  {userSearchLoading ? (
+                    <div className="flex items-center gap-2 px-3 py-3 text-sm text-muted-foreground">
+                      <Loader2 className="h-4 w-4 animate-spin" /> Searching users...
+                    </div>
+                  ) : userCandidates.length > 0 ? (
+                    userCandidates.map((candidate) => (
+                      <button
+                        key={candidate.id}
+                        type="button"
+                        className="flex w-full items-center justify-between gap-3 border-b px-3 py-2 text-left text-sm last:border-b-0 hover:bg-background"
+                        onClick={() => {
+                          setSelectedUser(candidate)
+                          setUserId(candidate.id)
+                          setUserSearch(candidateLabel(candidate))
+                          setUserCandidates([])
+                          setUserSearchAttempted(false)
+                        }}
+                      >
+                        <span>
+                          <span className="font-medium">{candidateLabel(candidate)}</span>
+                          <span className="ml-2 text-xs text-muted-foreground">{candidate.email}</span>
+                        </span>
+                        <span className="text-[10px] text-muted-foreground">{candidate.id}</span>
+                      </button>
+                    ))
+                  ) : (
+                    <p className="px-3 py-3 text-sm text-muted-foreground">No users found for this search.</p>
+                  )}
+                </div>
+              )}
             </div>
           )}
 
