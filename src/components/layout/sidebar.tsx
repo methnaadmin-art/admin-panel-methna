@@ -117,7 +117,6 @@ const navSections: NavSection[] = [
       { to: '/subscriptions/finance', labelKey: 'Subscription Finance', icon: CreditCard },
       { to: '/plans', labelKey: 'Plans', icon: Settings2 },
       { to: '/consumables', labelKey: 'Consumables', icon: ShoppingCart },
-      { to: '/monetization', labelKey: 'nav.monetization', icon: CreditCard },
       { to: '/ads', labelKey: 'nav.adCampaigns', icon: Megaphone },
     ],
   },

@@ -15,7 +15,6 @@ const PhotosPage = lazy(() => import('@/pages/photos'))
 const AnalyticsPage = lazy(() => import('@/pages/analytics'))
 const TrustSafetyPage = lazy(() => import('@/pages/trust-safety'))
 const SecurityPage = lazy(() => import('@/pages/security'))
-const MonetizationPage = lazy(() => import('@/pages/monetization'))
 const ChatPage = lazy(() => import('@/pages/chat'))
 const NotificationsPage = lazy(() => import('@/pages/notifications'))
 const SearchUsersPage = lazy(() => import('@/pages/search-users'))
@@ -64,7 +63,7 @@ export default function App() {
                   <Route path="/chat" element={<ChatPage />} />
                   <Route path="/notifications" element={<NotificationsPage />} />
                   <Route path="/search" element={<SearchUsersPage />} />
-                  <Route path="/monetization" element={<MonetizationPage />} />
+                  <Route path="/monetization" element={<PlansPage />} />
                   <Route path="/activity" element={<ActivityPage />} />
                   <Route path="/support" element={<SupportPage />} />
                   <Route path="/ads" element={<AdsPage />} />

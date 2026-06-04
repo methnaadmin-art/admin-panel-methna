@@ -316,6 +316,10 @@ export default function PlansPage() {
       throw new Error('Google Base Plan ID is required for paid plans')
     }
 
+    if (isPaidPlan && !iosProductId) {
+      throw new Error('App Store Product ID is required for paid plans')
+    }
+
     if (googleProductId && googleBasePlanId) {
       const normalizedProduct = googleProductId.toLowerCase()
       const normalizedBasePlan = googleBasePlanId.toLowerCase()
