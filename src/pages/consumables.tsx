@@ -165,6 +165,75 @@ export default function ConsumablesPage() {
       return
     }
 
+    const googleProductId = form.googleProductId.trim()
+    const iosProductId = form.iosProductId.trim()
+    const stripePriceId = form.stripePriceId.trim()
+    const isMobileProduct =
+      form.platformAvailability === 'all' || form.platformAvailability === 'mobile'
+
+    if (isMobileProduct && !googleProductId) {
+      toast({
+        title: 'Validation Error',
+        description: 'Google Play Product ID is required for mobile consumable products',
+        variant: 'error',
+      })
+      return
+    }
+
+    if (isMobileProduct && !iosProductId) {
+      toast({
+        title: 'Validation Error',
+        description: 'App Store Product ID is required for mobile consumable products',
+        variant: 'error',
+      })
+      return
+    }
+
+    const duplicateGoogle = googleProductId
+      ? products.find((product) => {
+          if (editingProduct && product.id === editingProduct.id) return false
+          return String(product.googleProductId || '').trim().toLowerCase() === googleProductId.toLowerCase()
+        })
+      : null
+    if (duplicateGoogle) {
+      toast({
+        title: 'Validation Error',
+        description: `Google Play Product ID is already used by ${duplicateGoogle.title}`,
+        variant: 'error',
+      })
+      return
+    }
+
+    const duplicateApple = iosProductId
+      ? products.find((product) => {
+          if (editingProduct && product.id === editingProduct.id) return false
+          return String(product.iosProductId || product.appleProductId || '').trim().toLowerCase() === iosProductId.toLowerCase()
+        })
+      : null
+    if (duplicateApple) {
+      toast({
+        title: 'Validation Error',
+        description: `App Store Product ID is already used by ${duplicateApple.title}`,
+        variant: 'error',
+      })
+      return
+    }
+
+    const duplicateStripe = stripePriceId
+      ? products.find((product) => {
+          if (editingProduct && product.id === editingProduct.id) return false
+          return String(product.stripePriceId || '').trim().toLowerCase() === stripePriceId.toLowerCase()
+        })
+      : null
+    if (duplicateStripe) {
+      toast({
+        title: 'Validation Error',
+        description: `Stripe Price ID is already used by ${duplicateStripe.title}`,
+        variant: 'error',
+      })
+      return
+    }
+
     setSaving(true)
     try {
       const payload: ConsumableProductPayload = {
@@ -177,11 +246,11 @@ export default function ConsumablesPage() {
         currency: form.currency.trim() || 'usd',
         platformAvailability: form.platformAvailability,
         sortOrder: parseInt(form.sortOrder, 10) || 0,
-        googleProductId: form.googleProductId.trim() || undefined,
-        androidProductId: form.googleProductId.trim() || undefined,
-        iosProductId: form.iosProductId.trim() || undefined,
-        appleProductId: form.iosProductId.trim() || undefined,
-        stripePriceId: form.stripePriceId.trim() || undefined,
+        googleProductId: googleProductId || undefined,
+        androidProductId: googleProductId || undefined,
+        iosProductId: iosProductId || undefined,
+        appleProductId: iosProductId || undefined,
+        stripePriceId: stripePriceId || undefined,
         stripeProductId: form.stripeProductId.trim() || undefined,
       }
 
