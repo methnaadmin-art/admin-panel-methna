@@ -56,7 +56,7 @@ interface Ad {
 
 const emptyForm = {
   title: '', description: '', imageUrl: '', buttonText: '', buttonLink: '',
-  placement: 'banner', status: 'draft', targetGender: '', targetPlan: '',
+  placement: 'feed', status: 'active', targetGender: '', targetPlan: '',
   targetCountry: '', targetCity: '', showEveryNUsers: 1, weight: 1,
 }
 
