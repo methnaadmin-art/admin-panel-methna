@@ -343,6 +343,33 @@ const getProfileImageUrl = (user: UserRecord) => {
   )
 }
 
+const getUserGender = (user: UserRecord) => {
+  const profile = isRecord(user.profile) ? user.profile : undefined
+  const gender = firstString(user.gender, profile?.gender, profile?.sex, user.sex)
+  return gender ? gender.charAt(0).toUpperCase() + gender.slice(1).toLowerCase() : '-'
+}
+
+const getUserCountry = (user: UserRecord) => {
+  const profile = isRecord(user.profile) ? user.profile : undefined
+  return firstString(user.country, user.countryCode, profile?.country, profile?.countryCode) || '-'
+}
+
+const getUserAge = (user: UserRecord) => {
+  const profile = isRecord(user.profile) ? user.profile : undefined
+  const birthDateStr = firstString(
+    user.birthDate,
+    user.birthday,
+    user.dateOfBirth,
+    profile?.birthDate,
+    profile?.birthday,
+  )
+  if (!birthDateStr) return '-'
+  const birthDate = new Date(birthDateStr)
+  if (Number.isNaN(birthDate.getTime())) return '-'
+  const age = Math.floor((Date.now() - birthDate.getTime()) / (365.25 * 24 * 60 * 60 * 1000))
+  return String(age)
+}
+
 const getPremiumSnapshot = (user: UserRecord) => {
   const subscription = isRecord(user.subscription) ? user.subscription : undefined
 
@@ -421,6 +448,43 @@ const userMatchesQuery = (user: UserRecord, query: string) => {
   ]
 
   return fields.some((field) => normalizeSearchText(field).includes(normalizedQuery))
+}
+
+const userMatchesGenderFilter = (user: UserRecord, gender: string) => {
+  if (gender === 'all') return true
+  const userGender = firstString(
+    user.gender,
+    user.profile?.gender,
+    user.profile?.sex,
+  ).toLowerCase()
+  return userGender === gender.toLowerCase()
+}
+
+const userMatchesCountryFilter = (user: UserRecord, country: string) => {
+  if (!country.trim()) return true
+  const normalizedCountry = normalizeSearchText(country)
+  const userCountry = normalizeSearchText(firstString(
+    user.country,
+    user.profile?.country,
+  ))
+  return userCountry.includes(normalizedCountry)
+}
+
+const userMatchesAgeFilter = (user: UserRecord, minAge: string, maxAge: string) => {
+  if (!minAge && !maxAge) return true
+  const birthDate = parseDate(firstString(
+    user.birthDate,
+    user.birthday,
+    user.dateOfBirth,
+    user.profile?.birthDate,
+    user.profile?.birthday,
+  ))
+  if (!birthDate) return !minAge && !maxAge
+  const age = Math.floor((Date.now() - birthDate.getTime()) / (365.25 * 24 * 60 * 60 * 1000))
+  const min = minAge ? parseInt(minAge, 10) : 0
+  const max = maxAge ? parseInt(maxAge, 10) : 999
+  if (Number.isNaN(min) || Number.isNaN(max)) return true
+  return age >= min && age <= max
 }
 
 const userMatchesPremiumFilter = (user: UserRecord, premiumFilter: PremiumFilter) => {
@@ -518,6 +582,10 @@ export default function UsersPage() {
   const [roleFilter, setRoleFilter] = useState<string>('all')
   const [premiumFilter, setPremiumFilter] = useState<PremiumFilter>('all')
   const [verificationFilter, setVerificationFilter] = useState<VerificationFilter>('all')
+  const [genderFilter, setGenderFilter] = useState<string>('all')
+  const [countryFilter, setCountryFilter] = useState('')
+  const [minAgeFilter, setMinAgeFilter] = useState('')
+  const [maxAgeFilter, setMaxAgeFilter] = useState('')
 
   const [search, setSearch] = useState('')
   const [searchInput, setSearchInput] = useState('')
@@ -648,7 +716,10 @@ export default function UsersPage() {
         items.filter((user) =>
           userMatchesQuery(user, trimmedSearch) &&
           userMatchesPremiumFilter(user, premiumFilter) &&
-          userMatchesVerificationFilter(user, verificationFilter)
+          userMatchesVerificationFilter(user, verificationFilter) &&
+          userMatchesGenderFilter(user, genderFilter) &&
+          userMatchesCountryFilter(user, countryFilter) &&
+          userMatchesAgeFilter(user, minAgeFilter, maxAgeFilter)
         )
 
       const shouldAggregateLocally = Boolean(
@@ -694,7 +765,7 @@ export default function UsersPage() {
 
   useEffect(() => {
     fetchUsers()
-  }, [page, statusFilter, roleFilter, premiumFilter, verificationFilter, search])
+  }, [page, statusFilter, roleFilter, premiumFilter, verificationFilter, genderFilter, countryFilter, minAgeFilter, maxAgeFilter, search])
 
   useEffect(() => {
     const refreshId = window.setInterval(() => {
@@ -702,7 +773,7 @@ export default function UsersPage() {
     }, 15000)
 
     return () => window.clearInterval(refreshId)
-  }, [page, statusFilter, roleFilter, premiumFilter, verificationFilter, search])
+  }, [page, statusFilter, roleFilter, premiumFilter, verificationFilter, genderFilter, countryFilter, minAgeFilter, maxAgeFilter, search])
 
   useEffect(() => {
     const nextSearch = searchInput.trim()
@@ -1130,6 +1201,49 @@ export default function UsersPage() {
             <SelectItem value="moderator">{t('users.moderator')}</SelectItem>
           </SelectContent>
         </Select>
+
+        <Select value={genderFilter} onValueChange={(value) => { setGenderFilter(value); setPage(1) }}>
+          <SelectTrigger className="w-full sm:w-32">
+            <SelectValue placeholder="Gender" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Genders</SelectItem>
+            <SelectItem value="male">Male</SelectItem>
+            <SelectItem value="female">Female</SelectItem>
+          </SelectContent>
+        </Select>
+
+        <Input
+          placeholder="Country"
+          value={countryFilter}
+          onChange={(e) => setCountryFilter(e.target.value)}
+          onBlur={() => setPage(1)}
+          className="w-full sm:w-36"
+        />
+
+        <div className="flex items-center gap-1 w-full sm:w-auto">
+          <Input
+            type="number"
+            placeholder="Min age"
+            value={minAgeFilter}
+            onChange={(e) => setMinAgeFilter(e.target.value)}
+            onBlur={() => setPage(1)}
+            className="w-20"
+            min={18}
+            max={120}
+          />
+          <span className="text-muted-foreground text-xs">–</span>
+          <Input
+            type="number"
+            placeholder="Max age"
+            value={maxAgeFilter}
+            onChange={(e) => setMaxAgeFilter(e.target.value)}
+            onBlur={() => setPage(1)}
+            className="w-20"
+            min={18}
+            max={120}
+          />
+        </div>
       </div>
 
       {errorMessage && (
@@ -1193,6 +1307,9 @@ export default function UsersPage() {
                     </th>
                     <th className="pb-3 pe-4 font-medium">{t('users.name')}</th>
                     <th className="pb-3 pe-4 font-medium">{t('users.email')}</th>
+                    <th className="pb-3 pe-4 font-medium">Gender</th>
+                    <th className="pb-3 pe-4 font-medium">Country</th>
+                    <th className="pb-3 pe-4 font-medium">Age</th>
                     <th className="pb-3 pe-4 font-medium">{t('users.status')}</th>
                     <th className="pb-3 pe-4 font-medium">Premium</th>
                     <th className="pb-3 pe-4 font-medium">Verification</th>
@@ -1233,6 +1350,9 @@ export default function UsersPage() {
                           </div>
                         </td>
                         <td className="py-3 pr-4 text-muted-foreground">{user.email}</td>
+                        <td className="py-3 pr-4 text-muted-foreground">{getUserGender(user)}</td>
+                        <td className="py-3 pr-4 text-muted-foreground">{getUserCountry(user)}</td>
+                        <td className="py-3 pr-4 text-muted-foreground">{getUserAge(user)}</td>
                         <td className="py-3 pr-4">
                           <div className="space-y-1">
                             {statusBadge(user.status)}
